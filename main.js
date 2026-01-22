@@ -3,14 +3,7 @@ Game.registerMod("nvda accessibility", {
 		var MOD = this;
 		this.createLiveRegion();
 		this.createAssertiveLiveRegion();
-		// Load external modules
-		MOD.loadModule('modules/statistics.js', function() {
-			console.log('[A11y Mod] Statistics module loaded');
-			if (typeof StatisticsModule !== 'undefined') {
-				MOD.StatisticsModule = StatisticsModule;
-			}
-		});
-		if (!Game.prefs.screenreader) { Game.prefs.screenreader = 1; }
+			if (!Game.prefs.screenreader) { Game.prefs.screenreader = 1; }
 		if (Game.volume !== undefined) { Game.volumeMusic = 0; }
 		this.lastVeilState = null;
 		this.lastBuffs = {};
@@ -46,7 +39,7 @@ Game.registerMod("nvda accessibility", {
 			MOD.filterUnownedBuildings();
 			MOD.labelBuildingLevels();
 			// Initialize Statistics Module
-			if (MOD.StatisticsModule) MOD.StatisticsModule.init();
+			MOD.labelStatsUpgradesAndAchievements();
 		}, 500);
 		Game.registerHook('draw', function() {
 			MOD.updateDynamicLabels();
@@ -64,7 +57,7 @@ Game.registerMod("nvda accessibility", {
 				MOD.createMainInterfaceEnhancements();
 				MOD.filterUnownedBuildings();
 				// Re-initialize Statistics Module after reset
-				if (MOD.StatisticsModule) MOD.StatisticsModule.init();
+				MOD.labelStatsUpgradesAndAchievements();
 			}, 100);
 		});
 		Game.Notify('Accessibility Enhanced', 'Version 7 with Statistics module.', [10, 0], 6);
@@ -260,13 +253,6 @@ Game.registerMod("nvda accessibility", {
 	announceUrgent: function(t) {
 		var a = l('srAnnouncerUrgent');
 		if (a) { a.textContent = ''; setTimeout(function() { a.textContent = t; }, 50); }
-	},
-	loadModule: function(path, callback) {
-		var script = document.createElement('script');
-		script.src = Game.resPath + 'mods/local/nvdaAccessibility/' + path;
-		script.onload = callback || function() {};
-		script.onerror = function() { console.error('[A11y Mod] Failed to load module: ' + path); };
-		document.head.appendChild(script);
 	},
 	createWrinklerOverlays: function() {
 		var MOD = this;
@@ -2096,7 +2082,7 @@ Game.registerMod("nvda accessibility", {
 		}
 		if (Game.T % 60 === 0) {
 			MOD.enhanceUpgradeShop();
-			if (MOD.StatisticsModule) MOD.StatisticsModule.labelUpgrades();
+			MOD.labelStatsUpgrades();
 			MOD.updateDragonLabels();
 			MOD.updateQoLLabels();
 			MOD.filterUnownedBuildings();
@@ -2104,7 +2090,7 @@ Game.registerMod("nvda accessibility", {
 			MOD.labelBuildingRows();
 			if (Game.onMenu === 'stats') {
 				MOD.enhanceAchievementDetails();
-				if (MOD.StatisticsModule) MOD.StatisticsModule.labelStats();
+				MOD.labelStatsScreen();
 			}
 			if (MOD.gardenReady()) {
 				// Create panel if it doesn't exist, otherwise just update labels
@@ -2127,12 +2113,12 @@ Game.registerMod("nvda accessibility", {
 				MOD.wasOnAscend = true;
 				MOD.enhanceHeavenlyUpgrades();
 				MOD.enhancePermanentUpgradeSlots();
-				if (MOD.StatisticsModule) MOD.StatisticsModule.labelHeavenly();
+				MOD.labelStatsHeavenly();
 			}
 			if (MOD.lastHeavenlyChips !== Game.heavenlyChips) {
 				MOD.lastHeavenlyChips = Game.heavenlyChips;
 				MOD.enhanceHeavenlyUpgrades();
-				if (MOD.StatisticsModule) MOD.StatisticsModule.labelHeavenly();
+				MOD.labelStatsHeavenly();
 			}
 		} else MOD.wasOnAscend = false;
 	},
@@ -2928,6 +2914,153 @@ Game.registerMod("nvda accessibility", {
 		}
 		// Update any mystery number labels
 		MOD.findAndLabelUnknownDisplays();
+	},
+
+	// ============================================
+	// Statistics Menu - Upgrades & Achievements Labels
+	// ============================================
+	labelStatsUpgradesAndAchievements: function() {
+		var MOD = this;
+		MOD.labelStatsUpgrades();
+		MOD.labelStatsAchievements();
+	},
+	labelStatsUpgrades: function() {
+		var MOD = this;
+		// Label upgrades in the store
+		var upgradesDiv = l('upgrades');
+		if (upgradesDiv) {
+			upgradesDiv.querySelectorAll('.crate.upgrade').forEach(function(crate) {
+				MOD.labelUpgradeCrate(crate);
+			});
+		}
+		// Label tech upgrades if visible
+		var techDiv = l('techUpgrades');
+		if (techDiv) {
+			techDiv.querySelectorAll('.crate.upgrade').forEach(function(crate) {
+				MOD.labelUpgradeCrate(crate);
+			});
+		}
+	},
+	labelUpgradeCrate: function(crate) {
+		var MOD = this;
+		if (!crate) return;
+		// Try to get upgrade from onclick attribute
+		var onclick = crate.getAttribute('onclick') || '';
+		var match = onclick.match(/Game\.UpgradesById\[(\d+)\]/);
+		if (!match) return;
+		var upgradeId = parseInt(match[1]);
+		var upgrade = Game.UpgradesById[upgradeId];
+		if (!upgrade) return;
+		// Build label
+		var parts = [upgrade.dname || upgrade.name];
+		if (upgrade.bought) {
+			parts.push('(Owned)');
+		} else {
+			var price = upgrade.getPrice ? upgrade.getPrice() : upgrade.basePrice;
+			var canAfford = Game.cookies >= price;
+			parts.push(canAfford ? '(Affordable)' : '(Too expensive)');
+			parts.push('Cost: ' + Beautify(price));
+		}
+		var desc = MOD.stripHtml(upgrade.desc || '');
+		if (desc) parts.push(desc);
+		crate.setAttribute('aria-label', parts.join('. '));
+		crate.setAttribute('role', 'button');
+		crate.setAttribute('tabindex', '0');
+		if (!crate.dataset.a11yLabeled) {
+			crate.dataset.a11yLabeled = 'true';
+			crate.addEventListener('keydown', function(e) {
+				if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); crate.click(); }
+			});
+		}
+	},
+	labelStatsAchievements: function() {
+		var MOD = this;
+		if (Game.onMenu !== 'stats') return;
+		// Find all achievement crates in the stats menu
+		document.querySelectorAll('.crate').forEach(function(crate) {
+			var onclick = crate.getAttribute('onclick') || '';
+			var match = onclick.match(/Game\.AchievementsById\[(\d+)\]/);
+			if (!match) return;
+			var achId = parseInt(match[1]);
+			var ach = Game.AchievementsById[achId];
+			if (!ach) return;
+			// Build label
+			var parts = [ach.dname || ach.name];
+			if (ach.won) {
+				parts.push('(Unlocked)');
+			} else {
+				parts.push('(Locked)');
+			}
+			if (ach.pool === 'shadow') {
+				parts.push('[Shadow Achievement]');
+			}
+			var desc = MOD.stripHtml(ach.desc || '');
+			if (desc && (ach.won || ach.pool !== 'shadow')) {
+				parts.push(desc);
+			}
+			crate.setAttribute('aria-label', parts.join('. '));
+			crate.setAttribute('role', 'listitem');
+			crate.setAttribute('tabindex', '0');
+		});
+	},
+	labelStatsScreen: function() {
+		var MOD = this;
+		if (Game.onMenu !== 'stats') return;
+		MOD.labelStatsUpgrades();
+		MOD.labelStatsAchievements();
+		// Label section headers
+		document.querySelectorAll('.section .title').forEach(function(title) {
+			var section = title.closest('.section');
+			if (section && !section.getAttribute('role')) {
+				section.setAttribute('role', 'region');
+				section.setAttribute('aria-label', title.textContent);
+			}
+		});
+	},
+	labelStatsHeavenly: function() {
+		var MOD = this;
+		if (!Game.OnAscend) return;
+		// Label heavenly upgrades on ascension screen
+		document.querySelectorAll('.crate').forEach(function(crate) {
+			var onclick = crate.getAttribute('onclick') || '';
+			var match = onclick.match(/Game\.UpgradesById\[(\d+)\]/);
+			if (!match) return;
+			var upgradeId = parseInt(match[1]);
+			var upgrade = Game.UpgradesById[upgradeId];
+			if (!upgrade || upgrade.pool !== 'prestige') return;
+			// Build label
+			var parts = [upgrade.dname || upgrade.name];
+			if (upgrade.bought) {
+				parts.push('(Owned)');
+			} else {
+				var price = upgrade.getPrice ? upgrade.getPrice() : upgrade.basePrice;
+				var canAfford = Game.heavenlyChips >= price;
+				parts.push(canAfford ? '(Affordable)' : '(Not enough chips)');
+				parts.push('Cost: ' + Beautify(price) + ' heavenly chips');
+			}
+			parts.push('[Heavenly Upgrade]');
+			var desc = MOD.stripHtml(upgrade.desc || '');
+			if (desc) parts.push(desc);
+			// Show requirements
+			if (upgrade.parents && upgrade.parents.length > 0) {
+				var parentNames = [];
+				for (var i = 0; i < upgrade.parents.length; i++) {
+					if (upgrade.parents[i]) parentNames.push(upgrade.parents[i].name);
+				}
+				if (parentNames.length > 0) {
+					parts.push('Requires: ' + parentNames.join(', '));
+				}
+			}
+			crate.setAttribute('aria-label', parts.join('. '));
+			crate.setAttribute('role', 'button');
+			crate.setAttribute('tabindex', '0');
+			if (!crate.dataset.a11yLabeled) {
+				crate.dataset.a11yLabeled = 'true';
+				crate.addEventListener('keydown', function(e) {
+					if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); crate.click(); }
+				});
+			}
+		});
 	},
 
 	save: function() { return ''; },
