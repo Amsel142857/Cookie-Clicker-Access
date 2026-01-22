@@ -1,6 +1,15 @@
 This is a mod to make Cookie Clicker more accessible with NVDA on Steam.
 This mod only works with the Steam version of the game, and might only work with NVDA.
-Updates:
+
+## Installation
+
+1. Download [Cookie-Clicker-NVDA-Mod.zip](https://github.com/FioraXena/Cookie-Clicker-Enhanced-NVDA-Accessibility-Steam-Only-/raw/main/Cookie-Clicker-NVDA-Mod.zip)
+2. Extract the zip file
+3. Copy the "nvdaAccessibility" folder to your Cookie Clicker mods folder:
+   `[Steam Install Path]\steamapps\common\Cookie Clicker\resources\app\mods\local\`
+4. Launch Cookie Clicker and enable the mod in Options > Mods
+
+## Features
 Made the buildings section beneath a heading, along with buttons. It is now a little chunkier because now the text is displayed to us, rather than some attempt at hover workarounds.
 Added "Time until affordable" to the buildings and upgrades sections.
 You can now see how much your buildings are producing, per second (individual buildings, and with all owned of that specific building), and in percentage of your total CPS.
