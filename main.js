@@ -621,23 +621,35 @@ Game.registerMod("nvda accessibility", {
 	enhanceAchievementIcons: function() {
 		var MOD = this, menu = l('menu');
 		if (!menu) return;
-		menu.querySelectorAll('.crate.achievement').forEach(function(i) {
-			var id = i.dataset.id;
+		// Find all achievement crates (both button and div versions)
+		menu.querySelectorAll('.crate.achievement, button.crate.achievement').forEach(function(i) {
+			var id = i.dataset.id || i.getAttribute('data-id');
 			if (id && Game.AchievementsById[id]) MOD.labelAchievementIcon(i, Game.AchievementsById[id]);
 		});
 	},
 	enhanceUpgradeIcons: function() {
 		var MOD = this, menu = l('menu');
 		if (!menu) return;
-		menu.querySelectorAll('.crate.upgrade').forEach(function(i) {
-			var id = i.dataset.id;
+		// Find all upgrade crates (both button and div versions)
+		menu.querySelectorAll('.crate.upgrade, button.crate.upgrade').forEach(function(i) {
+			var id = i.dataset.id || i.getAttribute('data-id');
 			if (id && Game.UpgradesById[id]) MOD.labelUpgradeIcon(i, Game.UpgradesById[id]);
 		});
 	},
 	labelAchievementIcon: function(icon, ach) {
 		if (!icon || !ach) return;
-		var n = ach.dname || ach.name, d = this.stripHtml(ach.desc || ''), w = ach.won ? 'Unlocked' : 'Locked';
-		var lbl = 'Achievement: ' + n + '. Status: ' + w + '. ' + d;
+		var MOD = this;
+		var n = ach.dname || ach.name;
+		var d = MOD.stripHtml(ach.desc || '');
+		var w = ach.won ? 'Unlocked' : 'Locked';
+		var pool = ach.pool === 'shadow' ? ' [Shadow Achievement]' : '';
+		var lbl = 'Achievement: ' + n + '. Status: ' + w + '.' + pool + ' ' + d;
+		// Populate the aria-labelledby target label if it exists
+		var ariaLabel = l('ariaReader-achievement-' + ach.id);
+		if (ariaLabel) {
+			ariaLabel.textContent = lbl;
+		}
+		// Also set aria-label directly as fallback
 		icon.setAttribute('aria-label', lbl);
 		icon.setAttribute('role', 'button');
 		icon.setAttribute('tabindex', '0');
@@ -650,8 +662,18 @@ Game.registerMod("nvda accessibility", {
 	},
 	labelUpgradeIcon: function(icon, upg) {
 		if (!icon || !upg) return;
-		var n = upg.dname || upg.name, d = this.stripHtml(upg.desc || ''), w = upg.bought ? 'Owned' : 'Not owned';
-		var lbl = 'Upgrade: ' + n + '. Status: ' + w + '. ' + d;
+		var MOD = this;
+		var n = upg.dname || upg.name;
+		var d = MOD.stripHtml(upg.desc || '');
+		var w = upg.bought ? 'Owned' : 'Not owned';
+		var pool = upg.pool === 'prestige' ? ' [Heavenly Upgrade]' : '';
+		var lbl = 'Upgrade: ' + n + '. Status: ' + w + '.' + pool + ' ' + d;
+		// Populate the aria-labelledby target label if it exists
+		var ariaLabel = l('ariaReader-upgrade-' + upg.id);
+		if (ariaLabel) {
+			ariaLabel.textContent = lbl;
+		}
+		// Also set aria-label directly as fallback
 		icon.setAttribute('aria-label', lbl);
 		icon.setAttribute('role', 'button');
 		icon.setAttribute('tabindex', '0');
@@ -2090,7 +2112,7 @@ Game.registerMod("nvda accessibility", {
 			MOD.labelBuildingRows();
 			if (Game.onMenu === 'stats') {
 				MOD.enhanceAchievementDetails();
-				MOD.labelStatsScreen();
+				MOD.labelStatisticsContent();
 			}
 			if (MOD.gardenReady()) {
 				// Create panel if it doesn't exist, otherwise just update labels
