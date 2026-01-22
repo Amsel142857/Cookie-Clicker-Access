@@ -44,6 +44,12 @@ Game.registerMod("nvda accessibility", {
 		Game.registerHook('draw', function() {
 			MOD.updateDynamicLabels();
 		});
+		// Hook into purchases to immediately refresh upgrade labels
+		Game.registerHook('buy', function() {
+			MOD.enhanceUpgradeShop();
+		});
+		// Also track store refresh flag
+		MOD.lastStoreRefresh = Game.storeToRefresh;
 		Game.registerHook('reset', function(hard) {
 			setTimeout(function() {
 				MOD.enhanceMainUI();
@@ -663,11 +669,17 @@ Game.registerMod("nvda accessibility", {
 	labelStatsAchievementIcon: function(icon, ach, isShadow) {
 		if (!icon || !ach) return;
 		var MOD = this;
-		var n = ach.dname || ach.name;
-		var d = MOD.stripHtml(ach.desc || '');
-		var w = ach.won ? 'Unlocked' : 'Locked';
-		var pool = (isShadow || ach.pool === 'shadow') ? ' [Shadow Achievement]' : '';
-		var lbl = n + '. ' + w + '.' + pool + ' ' + d;
+		var lbl = '';
+		if (ach.won) {
+			// Unlocked - show full info
+			var n = ach.dname || ach.name;
+			var d = MOD.stripHtml(ach.desc || '');
+			var pool = (isShadow || ach.pool === 'shadow') ? ' [Shadow Achievement]' : '';
+			lbl = n + '. Unlocked.' + pool + ' ' + d;
+		} else {
+			// Locked - hide name and description
+			lbl = '???. Locked.';
+		}
 		// Populate the aria-labelledby target label (created by game when screenreader=1)
 		var ariaLabel = l('ariaReader-achievement-' + ach.id);
 		if (ariaLabel) {
@@ -680,12 +692,16 @@ Game.registerMod("nvda accessibility", {
 	},
 	labelStatsUpgradeIcon: function(icon, upg, isHeavenly) {
 		if (!icon || !upg) return;
+		// Skip debug upgrades entirely
+		if (upg.pool === 'debug') {
+			icon.style.display = 'none';
+			return;
+		}
 		var MOD = this;
+		// Statistics menu only shows owned upgrades, so just label them
 		var n = upg.dname || upg.name;
 		var d = MOD.stripHtml(upg.desc || '');
-		var w = upg.bought ? 'Owned' : 'Not owned';
-		var pool = (isHeavenly || upg.pool === 'prestige') ? ' [Heavenly Upgrade]' : '';
-		var lbl = n + '. ' + w + '.' + pool + ' ' + d;
+		var lbl = n + '. ' + d;
 		// Populate the aria-labelledby target label (created by game when screenreader=1)
 		var ariaLabel = l('ariaReader-upgrade-' + upg.id);
 		if (ariaLabel) {
@@ -1666,9 +1682,7 @@ Game.registerMod("nvda accessibility", {
 		// Big cookie
 		var bc = l('bigCookie');
 		if (bc) bc.setAttribute('aria-label', 'Big cookie - Click to bake cookies');
-		// Store section
-		var st = l('storeTitle');
-		if (st) { st.setAttribute('role', 'heading'); st.setAttribute('aria-level', '2'); }
+		// Store section - H3 heading added in enhanceUpgradeShop, no H2 needed here
 		// Upgrades section
 		var up = l('upgrades');
 		if (up) { up.setAttribute('role', 'region'); up.setAttribute('aria-label', 'Available Upgrades'); }
@@ -1846,17 +1860,15 @@ Game.registerMod("nvda accessibility", {
 		if (a) {
 			var n = u.dname || u.name;
 			var p = Beautify(Math.round(u.getPrice()));
-			var s = u.bought ? 'Purchased' : (u.canBuy() ? 'Affordable' : 'Too expensive');
 			var t = n + '. ';
-			// Mark toggle upgrades as special options
-			if (u.pool === 'toggle') {
-				t += '[Special Option]. ';
-			}
-			t += s + '. ';
-			if (!u.bought) {
-				t += 'Price: ' + p + '. ';
-				// Always show time until affordable
-				t += MOD.getTimeUntilAfford(u.getPrice()) + '. ';
+			if (u.bought) {
+				t += 'Purchased. ';
+			} else if (u.canBuy()) {
+				t += 'Affordable. Cost: ' + p + '. ';
+			} else {
+				// Cannot afford - show time until affordable
+				var timeText = MOD.getTimeUntilAfford(u.getPrice());
+				t += 'Cannot afford, ' + timeText + '. Cost: ' + p + '. ';
 			}
 			// For toggle upgrades, use our enhanced effect description
 			if (u.pool === 'toggle') {
@@ -1882,10 +1894,15 @@ Game.registerMod("nvda accessibility", {
 		// Check if info text already exists
 		var textId = 'a11y-upgrade-info-' + u.id;
 		var existingText = l(textId);
-		// Build the info text - always show time
+		// Build the info text matching the button label format
 		var price = Beautify(Math.round(u.getPrice()));
-		var timeText = MOD.getTimeUntilAfford(u.getPrice());
-		var infoText = 'Cost: ' + price + '. ' + timeText + '. ' + MOD.stripHtml(u.desc || '');
+		var infoText = '';
+		if (u.canBuy()) {
+			infoText = 'Affordable. Cost: ' + price + '. ' + MOD.stripHtml(u.desc || '');
+		} else {
+			var timeText = MOD.getTimeUntilAfford(u.getPrice());
+			infoText = 'Cannot afford, ' + timeText + '. Cost: ' + price + '. ' + MOD.stripHtml(u.desc || '');
+		}
 		if (existingText) {
 			existingText.textContent = infoText;
 			existingText.setAttribute('aria-label', infoText);
@@ -1915,10 +1932,9 @@ Game.registerMod("nvda accessibility", {
 		var lbl = n;
 		if (v) lbl += ' (Vaulted)';
 		if (u.bought) lbl += ' (Purchased)';
-		// For toggle upgrades, add category and effect description
+		// For toggle upgrades, add effect description
 		if (isToggle || u.pool === 'toggle') {
-			lbl += ' [Special Option]. ';
-			lbl += MOD.getToggleUpgradeEffect(u);
+			lbl += '. ' + MOD.getToggleUpgradeEffect(u);
 		}
 		c.setAttribute('aria-label', lbl);
 		c.setAttribute('role', 'button');
@@ -2168,12 +2184,16 @@ Game.registerMod("nvda accessibility", {
 	},
 	labelHeavenlyUpgrade: function(u) {
 		if (!u) return;
-		var MOD = this, n = u.dname || u.name, p = Beautify(Math.round(u.getPrice()));
-		var can = Game.heavenlyChips >= u.getPrice() && !u.bought;
-		var s = u.bought ? 'Purchased' : (can ? 'Affordable' : 'Too expensive');
-		var t = 'Heavenly: ' + n + '. ' + s + '.';
-		if (!u.bought) t += ' Cost: ' + p + ' chips.';
-		if (u.desc) t += ' ' + MOD.stripHtml(u.desc);
+		var MOD = this;
+		var n = u.dname || u.name;
+		var p = Beautify(Math.round(u.getPrice()));
+		var t = '';
+		// Ascension menu - show name and cost for all upgrades so player can shop
+		if (u.bought) {
+			t = n + '. Owned.';
+		} else {
+			t = n + '. Cost: ' + p + ' heavenly chips.';
+		}
 		var ar = l('ariaReader-upgrade-' + u.id);
 		if (ar) ar.innerHTML = t;
 		var cr = l('heavenlyUpgrade' + u.id);
@@ -2190,13 +2210,26 @@ Game.registerMod("nvda accessibility", {
 	},
 	updateDynamicLabels: function() {
 		var MOD = this;
-		// Track shimmer appearances and fading every frame for timely announcements
-		MOD.trackShimmerAnnouncements();
-		// Run building minigame labels every 15 ticks to catch UI refreshes
-		if (Game.T % 15 === 0) {
+		// Immediately refresh upgrade shop when game signals store needs refresh
+		if (Game.storeToRefresh !== MOD.lastStoreRefresh) {
+			MOD.lastStoreRefresh = Game.storeToRefresh;
+			MOD.enhanceUpgradeShop();
+		}
+		// Track shimmer appearances - only every 10 ticks (still responsive)
+		if (Game.T % 10 === 0) {
+			MOD.trackShimmerAnnouncements();
+			MOD.updateShimmerOverlay();
+		}
+		// Run building minigame labels every 60 ticks (less frequent)
+		if (Game.T % 60 === 0) {
 			MOD.enhanceBuildingMinigames();
 		}
+		// Refresh upgrade shop every 30 ticks (1 second) for responsive purchasing
 		if (Game.T % 30 === 0) {
+			MOD.enhanceUpgradeShop();
+		}
+		// Run moderate-frequency updates every 90 ticks
+		if (Game.T % 90 === 0) {
 			MOD.updateWrinklerLabels();
 			MOD.updateSugarLumpLabel();
 			MOD.checkVeilState();
@@ -2204,40 +2237,39 @@ Game.registerMod("nvda accessibility", {
 			MOD.updateAchievementTracker();
 			MOD.updateLegacyButtonLabel();
 			MOD.updateActiveBuffsPanel();
-			MOD.updateShimmerOverlay();
 			MOD.updateMainInterfaceDisplays();
-			// Update garden labels more frequently
-			if (MOD.gardenReady()) {
-				MOD.labelOriginalGardenElements(Game.Objects['Farm'].minigame);
-			}
 		}
-		if (Game.T % 60 === 0) {
-			MOD.enhanceUpgradeShop();
+		// Run less frequent updates every 120 ticks
+		if (Game.T % 120 === 0) {
 			MOD.labelStatsUpgrades();
 			MOD.updateDragonLabels();
 			MOD.updateQoLLabels();
 			MOD.filterUnownedBuildings();
 			MOD.labelBuildingLevels();
 			MOD.labelBuildingRows();
+			// Only update stats when the menu is open
 			if (Game.onMenu === 'stats') {
 				MOD.enhanceAchievementDetails();
 				MOD.labelStatisticsContent();
 			}
-			if (MOD.gardenReady()) {
-				// Create panel if it doesn't exist, otherwise just update labels
+			// Only update garden when visible
+			if (MOD.gardenReady() && Game.Objects['Farm'].onMinigame) {
 				if (!l('a11yGardenPanel')) {
 					MOD.enhanceGardenMinigame();
 				} else {
 					MOD.updateGardenPlotLabels();
 				}
+				MOD.labelOriginalGardenElements(Game.Objects['Farm'].minigame);
 			}
-			if (MOD.pantheonReady()) {
+			// Only update pantheon when visible
+			if (MOD.pantheonReady() && Game.Objects['Temple'].onMinigame) {
 				if (!l('a11yPantheonPanel')) {
 					MOD.createEnhancedPantheonPanel();
 				}
 			}
-			if (Game.Objects['Wizard tower'] && Game.Objects['Wizard tower'].minigame) MOD.enhanceGrimoireMinigame();
-			if (Game.Objects['Bank'] && Game.Objects['Bank'].minigame) MOD.enhanceStockMarketMinigame();
+			// Only update minigames when visible
+			if (Game.Objects['Wizard tower'] && Game.Objects['Wizard tower'].minigame && Game.Objects['Wizard tower'].onMinigame) MOD.enhanceGrimoireMinigame();
+			if (Game.Objects['Bank'] && Game.Objects['Bank'].minigame && Game.Objects['Bank'].onMinigame) MOD.enhanceStockMarketMinigame();
 		}
 		if (Game.OnAscend) {
 			if (!MOD.wasOnAscend) {
@@ -2251,7 +2283,14 @@ Game.registerMod("nvda accessibility", {
 				MOD.enhanceHeavenlyUpgrades();
 				MOD.labelStatsHeavenly();
 			}
-		} else MOD.wasOnAscend = false;
+		} else {
+			if (MOD.wasOnAscend) {
+				// Leaving ascension - remove chips display
+				var chipsDisplay = l('a11yHeavenlyChipsDisplay');
+				if (chipsDisplay) chipsDisplay.remove();
+			}
+			MOD.wasOnAscend = false;
+		}
 	},
 	enhanceQoLSelectors: function() {
 		var MOD = this;
@@ -2775,13 +2814,16 @@ Game.registerMod("nvda accessibility", {
 			if (!id) return;
 			var ach = Game.AchievementsById[id];
 			if (!ach) return;
-			var name = ach.dname || ach.name;
-			var desc = MOD.stripHtml(ach.desc || '');
-			var status = ach.won ? 'Unlocked' : 'Locked';
-			// Try to determine unlock condition
-			var condition = MOD.getAchievementCondition(ach);
-			var lbl = name + '. ' + status + '. ' + desc;
-			if (condition) lbl += ' Requirement: ' + condition;
+			var lbl = '';
+			if (ach.won) {
+				// Unlocked - show full info
+				var name = ach.dname || ach.name;
+				var desc = MOD.stripHtml(ach.desc || '');
+				lbl = name + '. Unlocked. ' + desc;
+			} else {
+				// Locked - hide name and description
+				lbl = '???. Locked.';
+			}
 			crate.setAttribute('aria-label', lbl);
 			crate.setAttribute('role', 'listitem');
 			crate.setAttribute('tabindex', '0');
@@ -3113,19 +3155,16 @@ Game.registerMod("nvda accessibility", {
 		var upgradeId = parseInt(match[1]);
 		var upgrade = Game.UpgradesById[upgradeId];
 		if (!upgrade) return;
-		// Build label
-		var parts = [upgrade.dname || upgrade.name];
-		if (upgrade.bought) {
-			parts.push('(Owned)');
-		} else {
-			var price = upgrade.getPrice ? upgrade.getPrice() : upgrade.basePrice;
-			var canAfford = Game.cookies >= price;
-			parts.push(canAfford ? '(Affordable)' : '(Too expensive)');
-			parts.push('Cost: ' + Beautify(price));
+		// Skip debug upgrades entirely
+		if (upgrade.pool === 'debug') {
+			crate.style.display = 'none';
+			return;
 		}
+		// Statistics menu only shows owned upgrades, so just label them
+		var name = upgrade.dname || upgrade.name;
 		var desc = MOD.stripHtml(upgrade.desc || '');
-		if (desc) parts.push(desc);
-		crate.setAttribute('aria-label', parts.join('. '));
+		var lbl = name + '. ' + desc;
+		crate.setAttribute('aria-label', lbl);
 		crate.setAttribute('role', 'button');
 		crate.setAttribute('tabindex', '0');
 		if (!crate.dataset.a11yLabeled) {
@@ -3146,21 +3185,17 @@ Game.registerMod("nvda accessibility", {
 			var achId = parseInt(match[1]);
 			var ach = Game.AchievementsById[achId];
 			if (!ach) return;
-			// Build label
-			var parts = [ach.dname || ach.name];
+			// Build label - hide info for locked achievements
+			var lbl = '';
 			if (ach.won) {
-				parts.push('(Unlocked)');
+				var name = ach.dname || ach.name;
+				var desc = MOD.stripHtml(ach.desc || '');
+				var pool = (ach.pool === 'shadow') ? ' [Shadow Achievement]' : '';
+				lbl = name + '. Unlocked.' + pool + ' ' + desc;
 			} else {
-				parts.push('(Locked)');
+				lbl = '???. Locked.';
 			}
-			if (ach.pool === 'shadow') {
-				parts.push('[Shadow Achievement]');
-			}
-			var desc = MOD.stripHtml(ach.desc || '');
-			if (desc && (ach.won || ach.pool !== 'shadow')) {
-				parts.push(desc);
-			}
-			crate.setAttribute('aria-label', parts.join('. '));
+			crate.setAttribute('aria-label', lbl);
 			crate.setAttribute('role', 'listitem');
 			crate.setAttribute('tabindex', '0');
 		});
@@ -3182,38 +3217,32 @@ Game.registerMod("nvda accessibility", {
 	labelStatsHeavenly: function() {
 		var MOD = this;
 		if (!Game.OnAscend) return;
-		// Label heavenly upgrades on ascension screen
+		// Add heavenly chips display if not present
+		MOD.addHeavenlyChipsDisplay();
+		// Label heavenly upgrades on ascension screen - show names and costs for shopping
 		document.querySelectorAll('.crate').forEach(function(crate) {
 			var onclick = crate.getAttribute('onclick') || '';
 			var match = onclick.match(/Game\.UpgradesById\[(\d+)\]/);
 			if (!match) return;
 			var upgradeId = parseInt(match[1]);
 			var upgrade = Game.UpgradesById[upgradeId];
-			if (!upgrade || upgrade.pool !== 'prestige') return;
-			// Build label
-			var parts = [upgrade.dname || upgrade.name];
+			if (!upgrade) return;
+			// Skip non-prestige and debug upgrades
+			if (upgrade.pool === 'debug') {
+				crate.style.display = 'none';
+				return;
+			}
+			if (upgrade.pool !== 'prestige') return;
+			// Ascension menu - show name and cost so player can shop
+			var name = upgrade.dname || upgrade.name;
+			var lbl = '';
 			if (upgrade.bought) {
-				parts.push('(Owned)');
+				lbl = name + '. Owned.';
 			} else {
 				var price = upgrade.getPrice ? upgrade.getPrice() : upgrade.basePrice;
-				var canAfford = Game.heavenlyChips >= price;
-				parts.push(canAfford ? '(Affordable)' : '(Not enough chips)');
-				parts.push('Cost: ' + Beautify(price) + ' heavenly chips');
+				lbl = name + '. Cost: ' + Beautify(price) + ' heavenly chips.';
 			}
-			parts.push('[Heavenly Upgrade]');
-			var desc = MOD.stripHtml(upgrade.desc || '');
-			if (desc) parts.push(desc);
-			// Show requirements
-			if (upgrade.parents && upgrade.parents.length > 0) {
-				var parentNames = [];
-				for (var i = 0; i < upgrade.parents.length; i++) {
-					if (upgrade.parents[i]) parentNames.push(upgrade.parents[i].name);
-				}
-				if (parentNames.length > 0) {
-					parts.push('Requires: ' + parentNames.join(', '));
-				}
-			}
-			crate.setAttribute('aria-label', parts.join('. '));
+			crate.setAttribute('aria-label', lbl);
 			crate.setAttribute('role', 'button');
 			crate.setAttribute('tabindex', '0');
 			if (!crate.dataset.a11yLabeled) {
@@ -3223,6 +3252,28 @@ Game.registerMod("nvda accessibility", {
 				});
 			}
 		});
+	},
+	addHeavenlyChipsDisplay: function() {
+		var MOD = this;
+		if (!Game.OnAscend) return;
+		var displayId = 'a11yHeavenlyChipsDisplay';
+		var existing = l(displayId);
+		var chips = Beautify(Game.heavenlyChips);
+		var text = 'Heavenly Chips: ' + chips;
+		if (existing) {
+			existing.textContent = text;
+			existing.setAttribute('aria-label', text);
+		} else {
+			var display = document.createElement('div');
+			display.id = displayId;
+			display.style.cssText = 'position:fixed;top:10px;left:10px;background:#000;color:#fc0;padding:10px;border:2px solid #fc0;font-size:16px;z-index:10000;';
+			display.setAttribute('tabindex', '0');
+			display.setAttribute('role', 'status');
+			display.setAttribute('aria-live', 'polite');
+			display.setAttribute('aria-label', text);
+			display.textContent = text;
+			document.body.appendChild(display);
+		}
 	},
 
 	save: function() { return ''; },
