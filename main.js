@@ -1196,10 +1196,20 @@ Game.registerMod("nvda accessibility", {
 		// Check if garden minigame is visible - look for the actual minigame div
 		var gardenContainer = l('row2minigame');
 		if (!gardenContainer) {
-			// Try alternative - look for gardenContent
-			gardenContainer = l('gardenContent');
+			// Try alternative - look for gardenContent or gardenPlot
+			gardenContainer = l('gardenContent') || l('gardenPlot') || document.querySelector('.gardenPlot');
 		}
-		if (!gardenContainer) return;
+		// If still not found, try to insert into the farm building row
+		if (!gardenContainer) {
+			var farmBuilding = Game.Objects['Farm'];
+			if (farmBuilding && farmBuilding.l) {
+				gardenContainer = farmBuilding.l;
+			}
+		}
+		if (!gardenContainer) {
+			console.log('[A11y] Garden: Could not find container for accessible panel');
+			return;
+		}
 		// Create accessible panel
 		var panel = document.createElement('div');
 		panel.id = 'a11yGardenPanel';
@@ -2742,8 +2752,23 @@ Game.registerMod("nvda accessibility", {
 		var pan = Game.Objects['Temple'].minigame;
 		var oldPanel = l('a11yPantheonPanel');
 		if (oldPanel) oldPanel.remove();
+		// Find Pantheon container - try multiple locations
 		var panContainer = l('row6minigame');
-		if (!panContainer || panContainer.style.display === 'none') return;
+		if (!panContainer || panContainer.style.display === 'none') {
+			// Try alternative locations
+			panContainer = l('templeContent') || document.querySelector('.templeGod');
+		}
+		// If still not found, try the Temple building element
+		if (!panContainer) {
+			var temple = Game.Objects['Temple'];
+			if (temple && temple.l) {
+				panContainer = temple.l;
+			}
+		}
+		if (!panContainer) {
+			console.log('[A11y] Pantheon: Could not find container for accessible panel');
+			return;
+		}
 
 		var panel = document.createElement('div');
 		panel.id = 'a11yPantheonPanel';
