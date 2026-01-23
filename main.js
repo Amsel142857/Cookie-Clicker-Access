@@ -1551,17 +1551,16 @@ Game.registerMod("nvda accessibility", {
 			magicMeter.setAttribute('role', 'status');
 			magicMeter.setAttribute('aria-label', 'Magic: ' + Math.floor(grim.magic) + ' of ' + Math.floor(grim.magicM));
 		}
-		// Enhance spell buttons with full information
+		// Enhance spell buttons - name and cost only, effect shown below
 		document.querySelectorAll('.grimoireSpell').forEach(function(b) {
 			var id = b.id.replace('grimoireSpell', ''), sp = grim.spellsById[id];
 			if (sp) {
 				var cost = Math.floor(grim.getSpellCost(sp) * 100) / 100;
 				var currentMagic = Math.floor(grim.magic);
 				var canCast = currentMagic >= cost;
-				// Full button label: name, cost, whether castable, and effect
+				// Button label: name, cost, whether castable (no effect - shown below)
 				var lbl = sp.name + '. Cost: ' + cost + ' magic. ';
-				lbl += canCast ? 'Can cast. ' : 'Not enough magic. ';
-				lbl += 'Effect: ' + MOD.stripHtml(sp.desc || '');
+				lbl += canCast ? 'Can cast.' : 'Not enough magic.';
 				b.setAttribute('aria-label', lbl);
 				b.setAttribute('role', 'button');
 				b.setAttribute('tabindex', '0');
