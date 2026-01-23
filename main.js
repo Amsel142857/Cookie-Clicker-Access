@@ -129,17 +129,8 @@ Game.registerMod("nvda accessibility", {
 			var mgBtn = bldEl.querySelector('.objectMinigame, [onclick*="minigame"], [onclick*="switchMinigame"]');
 			if (mgBtn) {
 				if (level >= 1 && mg) {
-					// Check if minigame is currently open - multiple ways to detect
-					var mgContainer = l('row' + bld.id + 'minigame');
-					var isOpen = false;
-					if (mgContainer) {
-						// Check if container is visible
-						isOpen = mgContainer.style.display !== 'none' &&
-								 mgContainer.style.visibility !== 'hidden' &&
-								 mgContainer.classList.contains('rowMinigame');
-					}
-					// Also check if the building's onMinigame property is set
-					if (bld.onMinigame) isOpen = true;
+					// Check if minigame is currently open using onMinigame flag
+					var isOpen = bld.onMinigame ? true : false;
 					mgBtn.setAttribute('aria-label', (isOpen ? 'Close ' : 'Open ') + mgName);
 				} else if (level >= 1 && mgName) {
 					// Minigame unlocked but object not loaded yet
@@ -979,13 +970,24 @@ Game.registerMod("nvda accessibility", {
 		var MOD = this;
 		if (!el || !bld) return;
 		var owned = bld.amount || 0;
-		// Simplified main button - just name and quantity
-		var lbl = bld.name + ', ' + owned + ' owned';
+		var price = bld.price || 0;
+		var priceStr = Beautify(Math.round(price));
+		// Get time until affordable
+		var timeUntil = MOD.getTimeUntilAfford(price);
+		// Build the main button label: name, affordable/time, cost, owned
+		var lbl = bld.name;
+		if (Game.cookies >= price) {
+			lbl += ', Affordable';
+		} else {
+			lbl += ', ' + timeUntil;
+		}
+		lbl += ', Cost: ' + priceStr;
+		lbl += ', ' + owned + ' owned';
 		el.setAttribute('aria-label', lbl);
 		el.setAttribute('role', 'button');
 		el.setAttribute('tabindex', '0');
-		// Add info button with full details
-		MOD.ensureBuildingInfoButton(bld);
+		// Add info text (not a button) with building stats below
+		MOD.ensureBuildingInfoText(bld);
 	},
 	enhanceMinigameHeader: function(bld, mgName, mg) {
 		var MOD = this;
@@ -1549,13 +1551,17 @@ Game.registerMod("nvda accessibility", {
 			magicMeter.setAttribute('role', 'status');
 			magicMeter.setAttribute('aria-label', 'Magic: ' + Math.floor(grim.magic) + ' of ' + Math.floor(grim.magicM));
 		}
-		// Enhance spell buttons - simplified labels
+		// Enhance spell buttons with full information
 		document.querySelectorAll('.grimoireSpell').forEach(function(b) {
 			var id = b.id.replace('grimoireSpell', ''), sp = grim.spellsById[id];
 			if (sp) {
 				var cost = Math.floor(grim.getSpellCost(sp) * 100) / 100;
-				// Simple button label: just name and cost
-				var lbl = sp.name + ', ' + cost + ' magic';
+				var currentMagic = Math.floor(grim.magic);
+				var canCast = currentMagic >= cost;
+				// Full button label: name, cost, whether castable, and effect
+				var lbl = sp.name + '. Cost: ' + cost + ' magic. ';
+				lbl += canCast ? 'Can cast. ' : 'Not enough magic. ';
+				lbl += 'Effect: ' + MOD.stripHtml(sp.desc || '');
 				b.setAttribute('aria-label', lbl);
 				b.setAttribute('role', 'button');
 				b.setAttribute('tabindex', '0');
@@ -1565,22 +1571,28 @@ Game.registerMod("nvda accessibility", {
 						if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); b.click(); }
 					});
 				}
-				// Add effect text below spell (not a button)
-				MOD.ensureSpellEffectText(sp, b);
+				// Add effect text below spell (focusable, not a button)
+				MOD.ensureSpellEffectText(sp, b, canCast);
 			}
 		});
 	},
-	ensureSpellEffectText: function(spell, spellEl) {
+	ensureSpellEffectText: function(spell, spellEl, canCast) {
 		var MOD = this;
 		try {
 			var textId = 'a11y-spell-effect-' + spell.id;
 			var existingText = l(textId);
-			if (!existingText) {
+			var effectText = 'Effect: ' + MOD.stripHtml(spell.desc || '');
+			if (existingText) {
+				existingText.textContent = effectText;
+				existingText.setAttribute('aria-label', effectText);
+			} else {
 				var effectDiv = document.createElement('div');
 				effectDiv.id = textId;
-				effectDiv.style.cssText = 'display:block;padding:4px;margin:2px 0;font-size:11px;color:#ccc;';
+				effectDiv.style.cssText = 'display:block;padding:4px;margin:2px 0;font-size:11px;color:#ccc;background:#222;';
 				effectDiv.setAttribute('tabindex', '0');
-				effectDiv.textContent = 'Effect: ' + MOD.stripHtml(spell.desc || '');
+				effectDiv.setAttribute('role', 'note');
+				effectDiv.setAttribute('aria-label', effectText);
+				effectDiv.textContent = effectText;
 				if (spellEl.nextSibling) {
 					spellEl.parentNode.insertBefore(effectDiv, spellEl.nextSibling);
 				} else {
@@ -1757,19 +1769,26 @@ Game.registerMod("nvda accessibility", {
 			return 'Unknown';
 		}
 	},
-	getBuildingInfoText: function(building) {
+	getBuildingStatsText: function(building) {
 		var MOD = this;
 		try {
 			var lines = [];
-			lines.push('Time until affordable: ' + MOD.getTimeUntilAfford(building.price));
+			// Building stats (CPS from 1, CPS from all owned, percentage of total)
 			if (building.amount > 0 && building.storedCps) {
-				lines.push('Each produces: ' + Beautify(building.storedCps, 1) + ' cookies per second');
-				lines.push('Total production: ' + Beautify(building.storedTotalCps, 1) + ' cookies per second');
+				lines.push('Each produces: ' + Beautify(building.storedCps, 1) + ' CPS');
+				lines.push('All ' + building.amount + ' produce: ' + Beautify(building.storedTotalCps, 1) + ' CPS');
 				if (Game.cookiesPs > 0) {
 					var pct = Math.round((building.storedTotalCps / Game.cookiesPs) * 100);
-					lines.push('This is ' + pct + ' percent of total production');
+					lines.push(pct + '% of total production');
 				}
 			}
+			// Building level if > 0
+			var level = parseInt(building.level) || 0;
+			if (level > 0) {
+				var lumpCost = level + 1;
+				lines.push('Level ' + level + ', upgrade cost: ' + lumpCost + ' sugar lump' + (lumpCost > 1 ? 's' : ''));
+			}
+			// Flavor text
 			if (building.desc) {
 				lines.push('Flavor: ' + MOD.stripHtml(building.desc));
 			}
@@ -1778,29 +1797,42 @@ Game.registerMod("nvda accessibility", {
 			return 'Info unavailable';
 		}
 	},
-	ensureBuildingInfoButton: function(building) {
+	ensureBuildingInfoText: function(building) {
 		var MOD = this;
 		try {
 			var productEl = l('product' + building.id);
 			if (!productEl) return;
-			var btnId = 'a11y-info-btn-building-' + building.id;
-			var btn = l(btnId);
-			if (!btn) {
-				btn = document.createElement('button');
-				btn.id = btnId;
-				btn.type = 'button';
-				btn.textContent = 'Info';
-				btn.style.cssText = 'display:block;width:100%;padding:5px;margin-top:2px;background:#1a1a1a;color:#fff;border:1px solid #444;cursor:pointer;font-size:12px;';
+			var textId = 'a11y-building-info-' + building.id;
+			var existingText = l(textId);
+			var infoText = MOD.getBuildingStatsText(building);
+			if (existingText) {
+				existingText.textContent = infoText;
+				existingText.setAttribute('aria-label', infoText);
+			} else {
+				// Create info text element (not a button - just focusable text)
+				var infoDiv = document.createElement('div');
+				infoDiv.id = textId;
+				infoDiv.className = 'a11y-building-info';
+				infoDiv.style.cssText = 'display:block;padding:6px;margin:2px 0;font-size:11px;color:#aaa;background:#1a1a1a;border:1px solid #333;';
+				infoDiv.setAttribute('tabindex', '0');
+				infoDiv.setAttribute('role', 'note');
+				infoDiv.setAttribute('aria-label', infoText);
+				infoDiv.textContent = infoText;
 				if (productEl.nextSibling) {
-					productEl.parentNode.insertBefore(btn, productEl.nextSibling);
+					productEl.parentNode.insertBefore(infoDiv, productEl.nextSibling);
 				} else {
-					productEl.parentNode.appendChild(btn);
+					productEl.parentNode.appendChild(infoDiv);
 				}
 			}
-			btn.setAttribute('aria-label', MOD.getBuildingInfoText(building));
-			btn.setAttribute('role', 'button');
-			btn.setAttribute('tabindex', '0');
 		} catch(e) {}
+	},
+	// Keep old function for backwards compatibility but rename
+	getBuildingInfoText: function(building) {
+		return this.getBuildingStatsText(building);
+	},
+	ensureBuildingInfoButton: function(building) {
+		// Redirect to text version
+		this.ensureBuildingInfoText(building);
 	},
 	getUpgradeInfoText: function(upgrade) {
 		var MOD = this;
@@ -1859,10 +1891,7 @@ Game.registerMod("nvda accessibility", {
 			}
 			a.innerHTML = t;
 		}
-		// Also add a visible/focusable text element below the upgrade (skip for toggles - they have click menus)
-		if (u.pool !== 'toggle') {
-			MOD.ensureUpgradeInfoText(u);
-		}
+		// Note: Removed redundant visible text element - button label has all the info
 	},
 	ensureUpgradeInfoText: function(u) {
 		var MOD = this;
@@ -2191,39 +2220,57 @@ Game.registerMod("nvda accessibility", {
 	},
 	updateDynamicLabels: function() {
 		var MOD = this;
-		// Skip most frames - only run every 60 ticks (2 seconds)
-		if (Game.T % 60 !== 0) {
-			// Only shimmer tracking runs more often (every 30 ticks)
-			if (Game.T % 30 === 0) {
-				MOD.trackShimmerAnnouncements();
-				MOD.updateShimmerOverlay();
-			}
-			return;
+		// Track shimmer appearances every frame for timely announcements
+		MOD.trackShimmerAnnouncements();
+		// Run building minigame labels every 15 ticks to catch UI refreshes
+		if (Game.T % 15 === 0) {
+			MOD.enhanceBuildingMinigames();
 		}
-		// Refresh upgrade shop only when store changes
-		if (Game.storeToRefresh !== MOD.lastStoreRefresh) {
-			MOD.lastStoreRefresh = Game.storeToRefresh;
-			setTimeout(function() { MOD.enhanceUpgradeShop(); }, 50);
-		}
-		// Minimal updates every 60 ticks
-		MOD.updateActiveBuffsPanel();
-		// Less frequent updates every 180 ticks (6 seconds)
-		if (Game.T % 180 === 0) {
-			MOD.enhanceUpgradeShop();
+		// Medium frequency updates every 30 ticks (1 second)
+		if (Game.T % 30 === 0) {
+			MOD.updateWrinklerLabels();
+			MOD.updateSugarLumpLabel();
+			MOD.checkVeilState();
+			MOD.updateBuffTracker();
+			MOD.updateAchievementTracker();
+			MOD.updateLegacyButtonLabel();
+			MOD.updateActiveBuffsPanel();
+			MOD.updateShimmerOverlay();
 			MOD.updateMainInterfaceDisplays();
+			// Update garden labels
+			if (MOD.gardenReady()) {
+				MOD.labelOriginalGardenElements(Game.Objects['Farm'].minigame);
+			}
 		}
-		// Rare updates every 300 ticks (10 seconds)
-		if (Game.T % 300 === 0) {
+		// Regular updates every 60 ticks (2 seconds)
+		if (Game.T % 60 === 0) {
+			MOD.enhanceUpgradeShop();
+			MOD.labelStatsUpgrades();
+			MOD.updateDragonLabels();
+			MOD.updateQoLLabels();
 			MOD.filterUnownedBuildings();
 			MOD.labelBuildingLevels();
+			MOD.labelBuildingRows();
+			if (Game.onMenu === 'stats') {
+				MOD.enhanceAchievementDetails();
+				MOD.labelStatisticsContent();
+			}
+			if (MOD.gardenReady()) {
+				if (!l('a11yGardenPanel')) {
+					MOD.enhanceGardenMinigame();
+				} else {
+					MOD.updateGardenPlotLabels();
+				}
+			}
+			if (MOD.pantheonReady()) {
+				if (!l('a11yPantheonPanel')) {
+					MOD.createEnhancedPantheonPanel();
+				}
+			}
+			if (Game.Objects['Wizard tower'] && Game.Objects['Wizard tower'].minigame) MOD.enhanceGrimoireMinigame();
+			if (Game.Objects['Bank'] && Game.Objects['Bank'].minigame) MOD.enhanceStockMarketMinigame();
 		}
-		// Statistics menu - only label once when opened
-		if (Game.onMenu === 'stats' && !MOD.statsLabeled) {
-			MOD.statsLabeled = true;
-			setTimeout(function() { MOD.labelStatisticsContent(); }, 200);
-		} else if (Game.onMenu !== 'stats') {
-			MOD.statsLabeled = false;
-		}
+		// Ascension screen handling
 		if (Game.OnAscend) {
 			if (!MOD.wasOnAscend) {
 				MOD.wasOnAscend = true;
@@ -2238,7 +2285,6 @@ Game.registerMod("nvda accessibility", {
 			}
 		} else {
 			if (MOD.wasOnAscend) {
-				// Leaving ascension - remove chips display
 				var chipsDisplay = l('a11yHeavenlyChipsDisplay');
 				if (chipsDisplay) chipsDisplay.remove();
 			}
@@ -2602,11 +2648,19 @@ Game.registerMod("nvda accessibility", {
 			if (btn) {
 				btn.addEventListener('click', function() {
 					shimmer.pop();
+					// Immediately hide/remove the button
+					this.style.display = 'none';
+					// Trigger overlay update
+					MOD.updateShimmerOverlay();
 				});
 				btn.addEventListener('keydown', function(e) {
 					if (e.key === 'Enter' || e.key === ' ') {
 						e.preventDefault();
 						shimmer.pop();
+						// Immediately hide/remove the button
+						this.style.display = 'none';
+						// Trigger overlay update
+						MOD.updateShimmerOverlay();
 					}
 				});
 			}
@@ -2998,15 +3052,8 @@ Game.registerMod("nvda accessibility", {
 						el.setAttribute('tabindex', '0');
 					} else if (onclick.includes('minigame') || onclick.includes('Minigame')) {
 						if (minigameUnlocked && minigameName) {
-							// Check if minigame is currently open - multiple ways to detect
-							var mgContainer = l('row' + bld.id + 'minigame');
-							var isOpen = false;
-							if (mgContainer) {
-								isOpen = mgContainer.style.display !== 'none' &&
-										 mgContainer.style.visibility !== 'hidden' &&
-										 mgContainer.classList.contains('rowMinigame');
-							}
-							if (bld.onMinigame) isOpen = true;
+							// Check if minigame is currently open using onMinigame flag
+							var isOpen = bld.onMinigame ? true : false;
 							el.setAttribute('aria-label', (isOpen ? 'Close ' : 'Open ') + minigameName);
 						} else if (hasMinigame) {
 							el.setAttribute('aria-label', minigameName + ' (unlock at level 1)');
