@@ -27,8 +27,16 @@ Made an H2 heading after the buildings to see your active buffs, and wrinklers.
 
 ## Known Issues
 
-- **Garden mini-game**: Currently bugged with the mod and will freeze the game. Avoid opening the Garden until this is fixed.
+- **Garden mini-game**: Currently not working. Avoid opening the Garden until this is fixed.
 - **Statistics menu**: Goals for enhanced statistics menu accessibility have been abandoned.
+
+## Changelog
+
+### Version 8
+- Garden is not working.
+- Pantheon is tentatively working.
+- Shimmers might be fixed.
+- Mod might be complete.
 
 This is still undergoing tests, so please, feedback will be greatly appreciated. As will assistance.
 
