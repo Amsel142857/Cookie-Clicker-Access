@@ -3421,7 +3421,7 @@ Game.registerMod("nvda accessibility", {
 		// Hide FPS and undefined elements from screen readers
 		if (leftColumn) {
 			leftColumn.querySelectorAll('div, span').forEach(function(el) {
-				if (el.id === 'cookies' || el.id === 'bigCookie' || el.id === 'cookieNumbers' || el.id === 'milkLayer' || el.id === 'milk') return;
+				if (el.id === 'cookies' || el.id === 'bigCookie' || el.id === 'cookieNumbers' || el.id === 'milkLayer' || el.id === 'milk' || el.id === 'lumps') return;
 				var text = (el.textContent || '').trim();
 				// Hide elements containing "undefined" or just a number (likely FPS)
 				if (text.toLowerCase().includes('undefined') || /^\d+$/.test(text)) {
@@ -3433,6 +3433,7 @@ Game.registerMod("nvda accessibility", {
 		// Also hide any standalone 2-3 digit numbers anywhere in the game area (FPS display)
 		document.querySelectorAll('#game div, #game span').forEach(function(el) {
 			if (el.children.length > 0) return; // Only leaf nodes
+			if (el.id === 'lumps' || el.closest('#lumps')) return; // Don't hide sugar lump elements
 			var text = (el.textContent || '').trim();
 			if (/^\d{2,3}$/.test(text)) {
 				el.setAttribute('aria-hidden', 'true');
@@ -3576,6 +3577,7 @@ Game.registerMod("nvda accessibility", {
 			if (!section) return;
 			section.querySelectorAll('div, span, button').forEach(function(el) {
 				if (el.getAttribute('aria-hidden') === 'true') return;
+				if (el.id === 'lumps' || el.closest('#lumps')) return; // Don't hide sugar lump elements
 				var text = (el.textContent || '').trim();
 				var label = (el.getAttribute('aria-label') || '').toLowerCase();
 				// Hide elements with just numbers (FPS) or containing "undefined"
@@ -3592,6 +3594,7 @@ Game.registerMod("nvda accessibility", {
 				for (var i = 0; i < parent.children.length; i++) {
 					var child = parent.children[i];
 					if (child.id === 'prefsButton' || child.id === 'statsButton' || child.id === 'logButton') continue;
+					if (child.id === 'lumps' || child.closest('#lumps')) continue; // Don't hide sugar lump elements
 					var text = (child.textContent || '').trim();
 					var label = (child.getAttribute('aria-label') || '').toLowerCase();
 					// Hide standalone numbers and undefined text/labels
@@ -3603,6 +3606,7 @@ Game.registerMod("nvda accessibility", {
 		}
 		// Also scan for any elements with "undefined" in aria-label anywhere on page
 		document.querySelectorAll('[aria-label*="undefined"]').forEach(function(el) {
+			if (el.id === 'lumps' || el.closest('#lumps')) return; // Don't hide sugar lump elements
 			el.setAttribute('aria-hidden', 'true');
 		});
 	},
