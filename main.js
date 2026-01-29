@@ -258,11 +258,19 @@ Game.registerMod("nvda accessibility", {
 	},
 	announce: function(t) {
 		var a = l('srAnnouncer');
-		if (a) { a.textContent = ''; setTimeout(function() { a.textContent = t; }, 50); }
+		var u = l('srAnnouncerUrgent');
+		// Clear both regions so only the latest message persists
+		if (a) a.textContent = '';
+		if (u) u.textContent = '';
+		if (a) { setTimeout(function() { a.textContent = t; }, 50); }
 	},
 	announceUrgent: function(t) {
-		var a = l('srAnnouncerUrgent');
-		if (a) { a.textContent = ''; setTimeout(function() { a.textContent = t; }, 50); }
+		var a = l('srAnnouncer');
+		var u = l('srAnnouncerUrgent');
+		// Clear both regions so only the latest message persists
+		if (a) a.textContent = '';
+		if (u) u.textContent = '';
+		if (u) { setTimeout(function() { u.textContent = t; }, 50); }
 	},
 	createWrinklerOverlays: function() {
 		var MOD = this;
