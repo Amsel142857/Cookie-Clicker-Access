@@ -74,8 +74,8 @@ Game.registerMod("nvda accessibility", {
 				MOD.labelStatsUpgradesAndAchievements();
 			}, 100);
 		});
-		Game.Notify('Accessibility Enhanced', 'Version 11 - Achievement announcements fixed.', [10, 0], 6);
-		this.announce('NVDA Accessibility mod version 11 loaded. Achievement announcements now work correctly.');
+		Game.Notify('Accessibility Enhanced', 'Version 11.7 - Bulk pricing, News heading, buff list fixes.', [10, 0], 6);
+		this.announce('NVDA Accessibility mod version 11.7 loaded.');
 	},
 	overrideDrawBuildings: function() {
 		var MOD = this;
@@ -240,7 +240,6 @@ Game.registerMod("nvda accessibility", {
 		if (l('srAnnouncer')) return;
 		var a = document.createElement('div');
 		a.id = 'srAnnouncer';
-		a.setAttribute('role', 'status');
 		a.setAttribute('aria-live', 'polite');
 		a.setAttribute('aria-atomic', 'true');
 		a.style.cssText = 'position:absolute;left:-10000px;width:1px;height:1px;overflow:hidden;';
@@ -250,7 +249,6 @@ Game.registerMod("nvda accessibility", {
 		if (l('srAnnouncerUrgent')) return;
 		var a = document.createElement('div');
 		a.id = 'srAnnouncerUrgent';
-		a.setAttribute('role', 'alert');
 		a.setAttribute('aria-live', 'assertive');
 		a.setAttribute('aria-atomic', 'true');
 		a.style.cssText = 'position:absolute;left:-10000px;width:1px;height:1px;overflow:hidden;';
@@ -1166,20 +1164,70 @@ Game.registerMod("nvda accessibility", {
 		var MOD = this;
 		if (!el || !bld) return;
 		var owned = bld.amount || 0;
-		var price = bld.price || 0;
-		var priceStr = Beautify(Math.round(price));
-		// Get time until affordable
-		var timeUntil = MOD.getTimeUntilAfford(price);
-		// Build the main button label: name, affordable/time, cost, owned
-		var lbl = bld.name;
-		if (Game.cookies >= price) {
-			lbl += ', Affordable';
+
+		// Determine buy/sell mode and bulk amount
+		var isBuyMode = Game.buyMode === 1;
+		var bulkAmount = Game.buyBulk;
+
+		// Calculate the appropriate price based on mode
+		var price, priceStr, actionLabel, quantityLabel;
+
+		if (isBuyMode) {
+			// Buy mode - use getSumPrice for bulk pricing
+			if (bulkAmount === -1) {
+				// Max mode - calculate how many can be afforded
+				var maxCanBuy = 0;
+				if (bld.getBulkPrice) {
+					// Use game's bulk price calculation if available
+					price = bld.bulkPrice || bld.price;
+				} else {
+					price = bld.getSumPrice ? bld.getSumPrice(1) : bld.price;
+				}
+				quantityLabel = 'max';
+				actionLabel = 'Buy';
+			} else {
+				// Fixed amount (1, 10, or 100)
+				price = bld.getSumPrice ? bld.getSumPrice(bulkAmount) : bld.price * bulkAmount;
+				quantityLabel = bulkAmount > 1 ? bulkAmount + ' for' : '';
+				actionLabel = 'Buy';
+			}
+			priceStr = Beautify(Math.round(price));
+
+			// Build label for buy mode
+			var lbl = bld.name;
+			if (Game.cookies >= price) {
+				lbl += ', Affordable';
+			} else {
+				var timeUntil = MOD.getTimeUntilAfford(price);
+				lbl += ', ' + timeUntil;
+			}
+			if (quantityLabel) {
+				lbl += ', ' + actionLabel + ' ' + quantityLabel + ' ' + priceStr;
+			} else {
+				lbl += ', Cost: ' + priceStr;
+			}
+			lbl += ', ' + owned + ' owned';
+			el.setAttribute('aria-label', lbl);
 		} else {
-			lbl += ', ' + timeUntil;
+			// Sell mode - calculate sell value
+			if (bulkAmount === -1) {
+				// Sell all
+				price = bld.getReverseSumPrice ? bld.getReverseSumPrice(owned) : Math.floor(bld.price * owned * 0.25);
+				quantityLabel = 'all ' + owned;
+			} else {
+				var sellAmount = Math.min(bulkAmount, owned);
+				price = bld.getReverseSumPrice ? bld.getReverseSumPrice(sellAmount) : Math.floor(bld.price * sellAmount * 0.25);
+				quantityLabel = sellAmount + '';
+			}
+			priceStr = Beautify(Math.round(price));
+
+			// Build label for sell mode
+			var lbl = bld.name;
+			lbl += ', Sell ' + quantityLabel + ' for ' + priceStr;
+			lbl += ', ' + owned + ' owned';
+			el.setAttribute('aria-label', lbl);
 		}
-		lbl += ', Cost: ' + priceStr;
-		lbl += ', ' + owned + ' owned';
-		el.setAttribute('aria-label', lbl);
+
 		el.setAttribute('role', 'button');
 		el.setAttribute('tabindex', '0');
 		// Add info text (not a button) with building stats below
@@ -2204,13 +2252,41 @@ Game.registerMod("nvda accessibility", {
 	},
 	addStructuralHeadings: function() {
 		var MOD = this;
+		// Add News heading as independent landmark (right under the legacy button area)
+		if (!l('a11yNewsHeading')) {
+			var newsHeading = document.createElement('h2');
+			newsHeading.id = 'a11yNewsHeading';
+			newsHeading.textContent = 'News';
+			// Use clip-rect technique for better screen reader compatibility
+			newsHeading.style.cssText = 'position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;';
+			// Insert after the legacy button
+			var legacyButton = l('legacyButton');
+			if (legacyButton && legacyButton.parentNode) {
+				legacyButton.parentNode.insertBefore(newsHeading, legacyButton.nextSibling);
+			} else {
+				// Fallback: insert at start of sectionLeft
+				var sectionLeft = l('sectionLeft');
+				if (sectionLeft) {
+					sectionLeft.insertBefore(newsHeading, sectionLeft.firstChild);
+				} else {
+					// Last resort: append to body
+					document.body.appendChild(newsHeading);
+				}
+			}
+		}
+		// Make ticker focusable if it exists
+		var ticker = l('ticker');
+		if (ticker) {
+			ticker.setAttribute('tabindex', '0');
+			ticker.setAttribute('aria-live', 'off');
+		}
 		// Add Buildings heading between upgrades and building list in the store
 		var products = l('products');
 		if (products && !l('a11yBuildingsHeading')) {
 			var buildingsHeading = document.createElement('h3');
 			buildingsHeading.id = 'a11yBuildingsHeading';
 			buildingsHeading.textContent = 'Buildings';
-			buildingsHeading.style.cssText = 'position:absolute;left:-10000px;width:1px;height:1px;overflow:hidden;';
+			buildingsHeading.style.cssText = 'position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;';
 			// Insert before the products container (after upgrades, before buildings)
 			products.parentNode.insertBefore(buildingsHeading, products);
 		}
@@ -2229,7 +2305,7 @@ Game.registerMod("nvda accessibility", {
 				var storeHeading = document.createElement('h3');
 				storeHeading.id = 'a11yStoreHeading';
 				storeHeading.textContent = 'Store';
-				storeHeading.style.cssText = 'position:absolute;left:-10000px;width:1px;height:1px;overflow:hidden;';
+				storeHeading.style.cssText = 'position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;';
 				uc.parentNode.insertBefore(storeHeading, uc);
 			}
 			// Label all upgrade crates
@@ -2302,7 +2378,23 @@ Game.registerMod("nvda accessibility", {
 		var MOD = this;
 		try {
 			var lines = [];
-			lines.push('Time until affordable: ' + MOD.getTimeUntilAfford(building.price));
+			// Calculate price based on current bulk mode
+			var isBuyMode = Game.buyMode === 1;
+			var bulkAmount = Game.buyBulk;
+
+			if (isBuyMode) {
+				var price;
+				if (bulkAmount === -1) {
+					price = building.bulkPrice || building.price;
+				} else {
+					price = building.getSumPrice ? building.getSumPrice(bulkAmount) : building.price * bulkAmount;
+				}
+				var timeLabel = bulkAmount > 1 ? 'Time until ' + bulkAmount + ' affordable: ' : 'Time until affordable: ';
+				if (bulkAmount === -1) timeLabel = 'Time until max affordable: ';
+				lines.push(timeLabel + MOD.getTimeUntilAfford(price));
+			}
+			// In sell mode, don't show time until affordable
+
 			if (building.amount > 0 && building.storedCps) {
 				lines.push('Each produces: ' + Beautify(building.storedCps, 1) + ' cookies per second');
 				lines.push('Total production: ' + Beautify(building.storedTotalCps, 1) + ' cookies per second');
@@ -2828,14 +2920,44 @@ Game.registerMod("nvda accessibility", {
 	},
 	populateProductLabels: function() {
 		// Populate ariaReader-product-* labels for buildings (created by game when screenreader=1)
+		var isBuyMode = Game.buyMode === 1;
+		var bulkAmount = Game.buyBulk;
+
 		for (var i in Game.ObjectsById) {
 			var bld = Game.ObjectsById[i];
 			if (!bld) continue;
 			var ariaLabel = l('ariaReader-product-' + bld.id);
 			if (ariaLabel) {
-				var price = Beautify(Math.round(bld.price));
 				var owned = bld.amount || 0;
-				var label = bld.name + '. ' + owned + ' owned. Cost: ' + price + ' cookies.';
+				var label = bld.name + '. ' + owned + ' owned. ';
+
+				if (isBuyMode) {
+					// Buy mode - show bulk price
+					var price;
+					if (bulkAmount === -1) {
+						price = bld.bulkPrice || bld.price;
+						label += 'Buy max. Cost: ' + Beautify(Math.round(price)) + ' cookies.';
+					} else {
+						price = bld.getSumPrice ? bld.getSumPrice(bulkAmount) : bld.price * bulkAmount;
+						if (bulkAmount > 1) {
+							label += 'Buy ' + bulkAmount + ' for ' + Beautify(Math.round(price)) + ' cookies.';
+						} else {
+							label += 'Cost: ' + Beautify(Math.round(price)) + ' cookies.';
+						}
+					}
+				} else {
+					// Sell mode - show sell value
+					var sellPrice;
+					if (bulkAmount === -1) {
+						sellPrice = bld.getReverseSumPrice ? bld.getReverseSumPrice(owned) : Math.floor(bld.price * owned * 0.25);
+						label += 'Sell all ' + owned + ' for ' + Beautify(Math.round(sellPrice)) + ' cookies.';
+					} else {
+						var sellAmount = Math.min(bulkAmount, owned);
+						sellPrice = bld.getReverseSumPrice ? bld.getReverseSumPrice(sellAmount) : Math.floor(bld.price * sellAmount * 0.25);
+						label += 'Sell ' + sellAmount + ' for ' + Beautify(Math.round(sellPrice)) + ' cookies.';
+					}
+				}
+
 				if (bld.storedTotalCps) {
 					label += ' Produces: ' + Beautify(bld.storedTotalCps, 1) + ' CPS total.';
 				}
@@ -3011,7 +3133,6 @@ Game.registerMod("nvda accessibility", {
 		panel.appendChild(heading);
 		var buffList = document.createElement('div');
 		buffList.id = 'a11yBuffList';
-		buffList.setAttribute('role', 'list');
 		buffList.style.cssText = 'color:#fff;font-size:14px;';
 		buffList.textContent = 'No active buffs';
 		panel.appendChild(buffList);
@@ -3037,11 +3158,11 @@ Game.registerMod("nvda accessibility", {
 			}
 		}
 		if (buffs.length === 0) {
-			buffList.innerHTML = '<div role="listitem" tabindex="0">No active buffs</div>';
+			buffList.innerHTML = '<div tabindex="0">No active buffs</div>';
 		} else {
 			var html = '';
 			buffs.forEach(function(buff) {
-				html += '<div role="listitem" tabindex="0" style="padding:4px 0;border-bottom:1px solid #444;">';
+				html += '<div tabindex="0" style="padding:4px 0;border-bottom:1px solid #444;">';
 				html += '<strong>' + buff.name + '</strong>: ' + buff.time + 's remaining';
 				if (buff.desc) html += '<br><span style="color:#aaa;font-size:12px;">' + buff.desc + '</span>';
 				html += '</div>';
