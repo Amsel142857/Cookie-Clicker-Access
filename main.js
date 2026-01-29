@@ -1259,7 +1259,7 @@ Game.registerMod("nvda accessibility", {
 				var tile = l('gardenTile-' + x + '-' + y);
 				if (!tile) continue;
 				var t = g.plot[y] && g.plot[y][x];
-				var lbl = (x+1) + ', ' + (y+1) + ': ';
+				var lbl = 'Row ' + (y+1) + ', column ' + (x+1) + ': ';
 				if (t && t[0] > 0) {
 					var pl = g.plantsById[t[0] - 1];
 					if (pl) {
@@ -1576,7 +1576,7 @@ Game.registerMod("nvda accessibility", {
 		if (g.seedSelected >= 0 && g.plantsById[g.seedSelected]) {
 			selectedSeedName = g.plantsById[g.seedSelected].name;
 		}
-		var label = (x+1) + ', ' + (y+1) + ': ';
+		var label = 'Row ' + (y+1) + ', column ' + (x+1) + ': ';
 		if (info.isEmpty) {
 			if (selectedSeedName) {
 				label += 'Empty. Press Enter to plant ' + selectedSeedName;
@@ -1844,15 +1844,15 @@ Game.registerMod("nvda accessibility", {
 		var g = Game.Objects['Farm'].minigame;
 		var info = MOD.getGardenTileInfo(x, y);
 		if (info.isEmpty) {
-			MOD.gardenAnnounce('Plot ' + (x+1) + ',' + (y+1) + ' is empty');
+			MOD.gardenAnnounce('Row ' + (y+1) + ', column ' + (x+1) + ' is empty');
 			return;
 		}
 		if (!info.isMature) {
-			MOD.gardenAnnounce(info.name + ' at plot ' + (x+1) + ',' + (y+1) + ' is ' + info.growth + '% grown, not ready to harvest');
+			MOD.gardenAnnounce(info.name + ' at row ' + (y+1) + ', column ' + (x+1) + ' is ' + info.growth + '% grown, not ready to harvest');
 			return;
 		}
 		g.harvest(x, y);
-		MOD.gardenAnnounce('Harvested ' + info.name + ' from plot ' + (x+1) + ',' + (y+1));
+		MOD.gardenAnnounce('Harvested ' + info.name + ' from row ' + (y+1) + ', column ' + (x+1));
 		setTimeout(function() { MOD.updateAllPlotButtons(); MOD.updateGardenPanelStatus(); }, 100);
 	},
 	// Plant at plot (uses selected seed)
@@ -1879,7 +1879,7 @@ Game.registerMod("nvda accessibility", {
 		// Plant the seed
 		var result = g.useTool(g.seedSelected, x, y);
 		if (result) {
-			MOD.gardenAnnounce('Planted ' + seed.name + ' at plot ' + (x+1) + ',' + (y+1));
+			MOD.gardenAnnounce('Planted ' + seed.name + ' at row ' + (y+1) + ', column ' + (x+1));
 		} else {
 			MOD.gardenAnnounce('Cannot plant ' + seed.name + '. Not enough cookies or tile is locked');
 		}
