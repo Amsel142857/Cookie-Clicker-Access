@@ -73,7 +73,7 @@ var GardenModule = (function() {
 	 */
 	function announceTile(x, y) {
 		var info = getTileInfo(x, y);
-		var text = 'Plot ' + (x + 1) + ',' + (y + 1) + ': ';
+		var text = 'R' + (y + 1) + ', C' + (x + 1) + ': ';
 
 		if (info.isEmpty) {
 			text += 'Empty';
@@ -179,11 +179,11 @@ var GardenModule = (function() {
 			// Plant the selected seed
 			g.useTool(g.seedSelected, x, y);
 			var seed = g.plantsById[g.seedSelected];
-			announce('Planted ' + (seed ? seed.name : 'seed') + ' at ' + (x + 1) + ',' + (y + 1));
+			announce('Planted ' + (seed ? seed.name : 'seed') + ' at R' + (y + 1) + ', C' + (x + 1));
 		} else if (!info.isEmpty && info.isMature) {
 			// Harvest mature plant
 			g.harvest(x, y);
-			announce('Harvested ' + info.name + ' from ' + (x + 1) + ',' + (y + 1));
+			announce('Harvested ' + info.name + ' from R' + (y + 1) + ', C' + (x + 1));
 		} else if (!info.isEmpty) {
 			announce(info.name + ' is not ready to harvest. ' + info.growth + '% grown');
 		} else {
