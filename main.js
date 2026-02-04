@@ -10,6 +10,7 @@ Game.registerMod("nvda accessibility", {
 		this.lastAchievementCount = 0;
 		this.wrinklerOverlays = [];
 		this.lastLumpRipe = false;
+		this.lastSeason = Game.season || '';
 		// Shimmer tracking - announce once on appear and once when fading
 		this.announcedShimmers = {}; // Track shimmers we've announced appearing
 		this.fadingShimmers = {}; // Track shimmers we've announced as fading
@@ -1089,6 +1090,25 @@ Game.registerMod("nvda accessibility", {
 			}
 		}
 		MOD.lastAchievementCount = cnt;
+	},
+	updateSeasonTracker: function() {
+		var MOD = this;
+		var currentSeason = Game.season || '';
+
+		if (currentSeason !== MOD.lastSeason) {
+			if (currentSeason === '') {
+				// Season ended
+				var oldName = Game.seasons[MOD.lastSeason] ?
+					Game.seasons[MOD.lastSeason].name : MOD.lastSeason;
+				MOD.announce(oldName + ' season has ended.');
+			} else {
+				// New season started
+				var newName = Game.seasons[currentSeason] ?
+					Game.seasons[currentSeason].name : currentSeason;
+				MOD.announce(newName + ' season has started!');
+			}
+			MOD.lastSeason = currentSeason;
+		}
 	},
 	enhanceBuildingMinigames: function() {
 		var MOD = this;
@@ -3038,6 +3058,7 @@ Game.registerMod("nvda accessibility", {
 			MOD.checkVeilState();
 			MOD.updateBuffTracker();
 			MOD.updateAchievementTracker();
+			MOD.updateSeasonTracker();
 			MOD.updateLegacyButtonLabel();
 			MOD.updateActiveBuffsPanel();
 			MOD.updateMainInterfaceDisplays();
@@ -3706,6 +3727,16 @@ Game.registerMod("nvda accessibility", {
 		milkDiv.setAttribute('aria-label', 'Milk progress: Loading...');
 		milkDiv.style.cssText = 'background:#1a1a1a;color:#fff;padding:8px;margin:5px;text-align:center;border:1px solid #444;font-size:12px;';
 		cpcDiv.parentNode.insertBefore(milkDiv, cpcDiv.nextSibling);
+		// Create Season display
+		var oldSeason = l('a11ySeasonDisplay');
+		if (oldSeason) oldSeason.remove();
+		var seasonDiv = document.createElement('div');
+		seasonDiv.id = 'a11ySeasonDisplay';
+		seasonDiv.setAttribute('tabindex', '0');
+		seasonDiv.textContent = 'Season: None';
+		seasonDiv.setAttribute('aria-label', 'Current season: None');
+		seasonDiv.style.cssText = 'background:#1a1a1a;color:#fff;padding:8px;margin:5px;text-align:center;border:1px solid #444;font-size:12px;';
+		milkDiv.parentNode.insertBefore(seasonDiv, milkDiv.nextSibling);
 		// Label mystery elements in the left column
 		MOD.labelMysteryElements();
 	},
@@ -3962,6 +3993,19 @@ Game.registerMod("nvda accessibility", {
 		MOD.findAndLabelUnknownDisplays();
 		// Update Milk display
 		MOD.updateMilkDisplay();
+		// Update Season display
+		MOD.updateSeasonDisplay();
+	},
+	updateSeasonDisplay: function() {
+		var seasonDiv = l('a11ySeasonDisplay');
+		if (!seasonDiv) return;
+		var currentSeason = Game.season || '';
+		var seasonName = 'None';
+		if (currentSeason !== '' && Game.seasons[currentSeason]) {
+			seasonName = Game.seasons[currentSeason].name;
+		}
+		seasonDiv.textContent = 'Season: ' + seasonName;
+		seasonDiv.setAttribute('aria-label', 'Current season: ' + seasonName);
 	},
 
 	// ============================================
