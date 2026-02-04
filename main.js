@@ -1466,8 +1466,7 @@ Game.registerMod("nvda accessibility", {
 			if (!plant) continue;
 			var seed = l('gardenSeed-' + seedId);
 			if (!seed) continue;
-			var isSelected = (g.seedSelected == seedId);
-			var lbl = (isSelected ? 'Selected: ' : '') + plant.name;
+			var lbl = plant.name;
 			if (!plant.unlocked) {
 				lbl = 'Locked seed: ' + plant.name;
 			} else if (plant.effsStr) {
@@ -1486,6 +1485,18 @@ Game.registerMod("nvda accessibility", {
 						}
 					});
 				})(seed);
+			}
+			// Add click handler for immediate "Selected" announcement
+			if (!seed.getAttribute('data-a11y-click')) {
+				seed.setAttribute('data-a11y-click', '1');
+				(function(el, plantName, plantId) {
+					el.addEventListener('click', function() {
+						var g = Game.Objects['Farm'].minigame;
+						if (g && g.seedSelected == plantId) {
+							MOD.gardenAnnounce('Selected ' + plantName);
+						}
+					});
+				})(seed, plant.name, parseInt(seedId));
 			}
 		}
 
@@ -1629,7 +1640,7 @@ Game.registerMod("nvda accessibility", {
 			}
 			// Add soil effects
 			var effects = [];
-			if (soil.tick && soil.tick !== 5) effects.push('tick every ' + soil.tick + ' minutes');
+			if (soil.tick) effects.push('tick every ' + soil.tick + ' minutes');
 			if (soil.effMult && soil.effMult !== 1) effects.push('plant effects ' + Math.round(soil.effMult * 100) + '%');
 			if (soil.weedMult && soil.weedMult !== 1) effects.push('weeds ' + Math.round(soil.weedMult * 100) + '%');
 			// Add special effects for pebbles and woodchips
@@ -2027,7 +2038,7 @@ Game.registerMod("nvda accessibility", {
 		}
 		g.harvest(x, y);
 		MOD.gardenAnnounce('Harvested ' + info.name + ' from R' + (y+1) + ', C' + (x+1));
-		setTimeout(function() { MOD.updateAllPlotButtons(); MOD.updateGardenPanelStatus(); }, 100);
+		MOD.updatePlotButton(x, y);
 	},
 	// Plant at plot (uses selected seed)
 	plantAtPlot: function(x, y) {
@@ -2054,10 +2065,10 @@ Game.registerMod("nvda accessibility", {
 		var result = g.useTool(g.seedSelected, x, y);
 		if (result) {
 			MOD.gardenAnnounce('Planted ' + seed.name + ' at R' + (y+1) + ', C' + (x+1));
+			MOD.updatePlotButton(x, y);
 		} else {
 			MOD.gardenAnnounce('Cannot plant ' + seed.name + '. Not enough cookies or tile is locked');
 		}
-		setTimeout(function() { MOD.updateAllPlotButtons(); MOD.updateGardenPanelStatus(); }, 100);
 	},
 	// Get list of harvestable (mature) plants with coordinates
 	getHarvestablePlants: function(g) {
