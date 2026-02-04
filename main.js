@@ -139,7 +139,9 @@ Game.registerMod("nvda accessibility", {
 				muteBtn.setAttribute('tabindex', '0');
 			}
 			// Find the minigame/view button and label it based on level
-			var mgBtn = bldEl.querySelector('.objectMinigame, [onclick*="minigame"], [onclick*="switchMinigame"]');
+			// Try multiple methods: direct ID lookup first, then selector within building element
+			var mgBtn = l('productMinigameButton' + bld.id) ||
+			            bldEl.querySelector('.productMinigameButton, .objectMinigame, [onclick*="minigame"], [onclick*="switchMinigame"]');
 			if (mgBtn) {
 				// Check if minigame is unlocked (level >= 1) and has a minigame
 				var hasMinigame = bld.minigameUrl || bld.minigameName;
@@ -3905,6 +3907,18 @@ Game.registerMod("nvda accessibility", {
 				productLevelEl.setAttribute('aria-label', bld.name + ' Level ' + level + '. Click to upgrade for ' + lumpCost + ' sugar lump' + (lumpCost > 1 ? 's' : ''));
 				productLevelEl.setAttribute('role', 'button');
 				productLevelEl.setAttribute('tabindex', '0');
+			}
+			// Also label the productMinigameButton in the right section (opens/closes minigame)
+			var productMgBtn = l('productMinigameButton' + bld.id);
+			if (productMgBtn) {
+				if (minigameUnlocked && minigameName) {
+					var isOpen = bld.onMinigame ? true : false;
+					productMgBtn.setAttribute('aria-label', (isOpen ? 'Close ' : 'Open ') + minigameName);
+				} else if (hasMinigame) {
+					productMgBtn.setAttribute('aria-label', minigameName + ' (unlock at level 1)');
+				}
+				productMgBtn.setAttribute('role', 'button');
+				productMgBtn.setAttribute('tabindex', '0');
 			}
 		}
 		// Also label any standalone level elements in the left section
