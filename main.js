@@ -294,8 +294,6 @@ Game.registerMod("nvda accessibility", {
 			}
 		} else {
 			// Remove old elements if they exist
-			var oldBtnContainer = l('wrinklerButtonContainer');
-			if (oldBtnContainer) oldBtnContainer.remove();
 			var oldNoWrinklersMsg = l('a11yNoWrinklersMsg');
 			if (oldNoWrinklersMsg) oldNoWrinklersMsg.remove();
 		}
@@ -306,20 +304,13 @@ Game.registerMod("nvda accessibility", {
 		noWrinklersMsg.style.cssText = 'padding:8px;color:#ccc;font-size:12px;';
 		noWrinklersMsg.textContent = 'No wrinklers present.';
 		c.appendChild(noWrinklersMsg);
-		// Create button container
-		var btnContainer = document.createElement('div');
-		btnContainer.id = 'wrinklerButtonContainer';
-		btnContainer.setAttribute('role', 'list');
-		btnContainer.style.cssText = 'display:flex;flex-wrap:wrap;gap:5px;';
-		c.appendChild(btnContainer);
 
 		for (var i = 0; i < 12; i++) {
 			var btn = document.createElement('button');
 			btn.id = 'wrinklerOverlay' + i;
-			btn.setAttribute('role', 'listitem');
 			btn.setAttribute('tabindex', '0');
-			btn.style.cssText = 'padding:8px 12px;background:#1a1a1a;color:#fff;border:1px solid #666;cursor:pointer;font-size:12px;';
-			btn.setAttribute('aria-label', 'Wrinkler slot ' + (i + 1) + ': Empty');
+			btn.style.cssText = 'padding:8px 12px;background:#1a1a1a;color:#fff;border:1px solid #666;cursor:pointer;font-size:12px;margin:2px;';
+			btn.textContent = 'Wrinkler slot ' + (i + 1) + ': Empty';
 			(function(idx) {
 				btn.addEventListener('click', function() {
 					var w = Game.wrinklers[idx];
@@ -337,7 +328,7 @@ Game.registerMod("nvda accessibility", {
 					if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); btn.click(); }
 				});
 			})(i);
-			btnContainer.appendChild(btn);
+			c.appendChild(btn);
 			MOD.wrinklerOverlays.push(btn);
 		}
 	},
@@ -354,7 +345,7 @@ Game.registerMod("nvda accessibility", {
 				activeCount++;
 				currentWrinklers[i] = true;
 				var s = Beautify(w.sucked), t = w.type === 1 ? 'Shiny ' : '';
-				o.setAttribute('aria-label', t + 'Wrinkler ' + (i + 1) + ': ' + s + ' cookies sucked. Click to pop.');
+				o.textContent = t + 'Wrinkler ' + (i + 1) + ': ' + s + ' cookies sucked. Click to pop.';
 				o.style.display = 'inline-block';
 
 				// Announce new wrinkler spawn (only once per wrinkler)
@@ -364,7 +355,7 @@ Game.registerMod("nvda accessibility", {
 					MOD.announceUrgent(wrinklerType + ' has appeared!');
 				}
 			} else {
-				o.setAttribute('aria-label', 'Wrinkler slot ' + (i + 1) + ': Empty');
+				o.textContent = 'Wrinkler slot ' + (i + 1) + ': Empty';
 				o.style.display = 'none';
 			}
 		}
@@ -1533,8 +1524,8 @@ Game.registerMod("nvda accessibility", {
 			// Add soil effects
 			var effects = [];
 			if (soil.weedMult && soil.weedMult !== 1) effects.push('weeds ' + Math.round(soil.weedMult * 100) + '%');
-			if (soil.ageTick && soil.ageTick !== 1) effects.push('growth ' + Math.round(soil.ageTick * 100) + '%');
-			if (soil.effMult && soil.effMult !== 1) effects.push('effects ' + Math.round(soil.effMult * 100) + '%');
+			if (soil.agingMult && soil.agingMult !== 1) effects.push('growth ' + Math.round(soil.agingMult * 100) + '%');
+			if (soil.effiMult && soil.effiMult !== 1) effects.push('effects ' + Math.round(soil.effiMult * 100) + '%');
 			if (effects.length > 0) lbl += '. ' + effects.join(', ');
 			soilEl.setAttribute('aria-label', lbl);
 			soilEl.setAttribute('role', 'button');
