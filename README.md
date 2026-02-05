@@ -1,4 +1,4 @@
-# Cookie Clicker NVDA Accessibility Mod
+# Cookie Clicker Access
 
 This is a mod to make Cookie Clicker more accessible with NVDA on Steam.
 This mod only works with the Steam version of the game, and might only work with NVDA.
@@ -9,7 +9,7 @@ All code in this mod was written by Claude (Anthropic's AI assistant). Human inv
 
 ## Installation
 
-1. Download [Cookie-Clicker-NVDA-Mod.zip](https://github.com/FioraXena/Cookie-Clicker-Enhanced-NVDA-Accessibility-Steam-Only-/raw/main/Cookie-Clicker-NVDA-Mod.zip)
+1. Download the latest release from the [Releases page](https://github.com/Amsel142857/Cookie-Clicker-Access/releases)
 2. Extract the zip file
 3. Copy the "nvdaAccessibility" folder to your Cookie Clicker mods folder:
    `[Steam Install Path]\steamapps\common\Cookie Clicker\resources\app\mods\local\`
