@@ -2200,8 +2200,8 @@ Game.registerMod("nvda accessibility", {
 			if (!slotEl) continue;
 			var spiritId = pan.slot[i];
 			var lbl = slots[i] + ' slot: ';
-			if (spiritId !== -1 && pan.gods[spiritId]) {
-				var god = pan.gods[spiritId];
+			if (spiritId !== -1 && pan.godsById[spiritId]) {
+				var god = pan.godsById[spiritId];
 				lbl += god.name + '. Press Enter to remove.';
 				slotEl.setAttribute('role', 'button');
 			} else {
@@ -2217,9 +2217,9 @@ Game.registerMod("nvda accessibility", {
 						if (e.key === 'Enter' || e.key === ' ') {
 							e.preventDefault();
 							if (pan.slot[slotIndex] !== -1) {
-								pan.slotGod(pan.gods[pan.slot[slotIndex]], -1);
+								pan.slotGod(pan.godsById[pan.slot[slotIndex]], -1);
 								MOD.announce(slots[slotIndex] + ' slot cleared');
-								setTimeout(function() { MOD.enhancePantheonMinigame(); }, 100);
+								MOD.enhancePantheonMinigame();
 							}
 						}
 					});
@@ -2253,8 +2253,7 @@ Game.registerMod("nvda accessibility", {
 			var god = pan.gods[id];
 			var godEl = l('templeGod' + god.id);
 			if (!godEl) continue;
-			var slotted = pan.slot.indexOf(parseInt(id));
-			var inSlot = slotted >= 0 ? 'Currently in ' + slots[slotted] + ' slot. ' : '';
+			var slotted = pan.slot.indexOf(god.id);
 			var desc = god.desc1 || god.desc || '';
 			var cleanDesc = MOD.stripHtml(desc).replace(/ +\./g, '.').replace(/ +,/g, ',');
 			var flavorText = god.quote ? MOD.stripHtml(god.quote).replace(/ +\./g, '.').replace(/ +,/g, ',') : '';
@@ -2267,7 +2266,7 @@ Game.registerMod("nvda accessibility", {
 				// Add h3 heading before god element
 				var heading = document.createElement('h3');
 				heading.id = 'a11y-god-heading-' + god.id;
-				heading.textContent = god.name;
+				heading.textContent = god.name + (slotted >= 0 ? ', in ' + slots[slotted] + ' slot' : '');
 				heading.style.cssText = 'position:absolute;left:-10000px;width:1px;height:1px;overflow:hidden;';
 				godEl.parentNode.insertBefore(heading, godEl);
 				// Add flavor text element
@@ -2282,38 +2281,68 @@ Game.registerMod("nvda accessibility", {
 				godEl.parentNode.insertBefore(buffEl, godEl);
 				MOD.createSpiritSlotButtons(god, godEl, pan, slots);
 			}
-			// Update flavor and buff text (can change when god is slotted/unslotted)
+			// Update heading, flavor and buff text (can change when god is slotted/unslotted)
+			var headingEl = l('a11y-god-heading-' + god.id);
 			var flavorEl = l('a11y-god-flavor-' + god.id);
 			var buffEl = l('a11y-god-buff-' + god.id);
+			if (headingEl) headingEl.textContent = god.name + (slotted >= 0 ? ', in ' + slots[slotted] + ' slot' : '');
 			if (flavorEl) flavorEl.textContent = flavorText;
-			if (buffEl) buffEl.textContent = inSlot + cleanDesc;
+			if (buffEl) buffEl.textContent = cleanDesc;
+			// Update slot button states (disabled for current slot)
+			MOD.updateSpiritSlotButtons(god, slotted);
 		}
 	},
 	createSpiritSlotButtons: function(god, godEl, pantheon, slots) {
 		var MOD = this;
+		var godId = god.id; // Store ID, not reference
+		var godName = god.name;
 		var container = document.createElement('div');
 		container.className = 'a11y-spirit-controls';
 		container.style.cssText = 'display:inline-block;margin-left:5px;';
 		for (var i = 0; i < 3; i++) {
 			(function(slotIndex, slotName) {
 				var btn = document.createElement('button');
+				btn.id = 'a11y-god-' + godId + '-slot-' + slotIndex;
 				btn.textContent = slotName.charAt(0);
-				btn.setAttribute('aria-label', 'Place ' + god.name + ' in ' + slotName + ' slot');
+				btn.setAttribute('aria-label', 'Place ' + godName + ' in ' + slotName + ' slot');
 				btn.style.cssText = 'width:24px;height:24px;margin:2px;background:#333;color:#fff;border:1px solid #666;cursor:pointer;';
 				btn.addEventListener('click', function(e) {
 					e.stopPropagation();
-					if (pantheon.swaps <= 0) {
-						MOD.announce('Cannot place ' + god.name + '. No worship swaps available.');
+					// Ignore if button is disabled - check by getting fresh reference
+					var thisBtn = l('a11y-god-' + godId + '-slot-' + slotIndex);
+					if (thisBtn && thisBtn.getAttribute('aria-disabled') === 'true') return;
+					// Get fresh references to pantheon and god
+					var pan = Game.Objects['Temple'] && Game.Objects['Temple'].minigame;
+					if (!pan) return;
+					var currentGod = pan.godsById[godId];
+					if (!currentGod) return;
+					if (pan.swaps <= 0) {
+						MOD.announce('Cannot place ' + godName + '. No worship swaps available.');
 						return;
 					}
-					pantheon.slotGod(god, slotIndex);
-					MOD.announce(god.name + ' placed in ' + slotName + ' slot');
-					setTimeout(function() { MOD.enhancePantheonMinigame(); }, 100);
+					pan.slotGod(currentGod, slotIndex);
+					pan.useSwap(1);
+					MOD.announce(godName + ' placed in ' + slotName + ' slot');
+					MOD.enhancePantheonMinigame();
 				});
 				container.appendChild(btn);
 			})(i, slots[i]);
 		}
 		godEl.parentNode.insertBefore(container, godEl.nextSibling);
+	},
+	updateSpiritSlotButtons: function(god, currentSlot) {
+		// currentSlot: -1 if not slotted, 0/1/2 if in a slot
+		for (var i = 0; i < 3; i++) {
+			var btn = l('a11y-god-' + god.id + '-slot-' + i);
+			if (!btn) continue;
+			if (currentSlot === i) {
+				btn.setAttribute('aria-disabled', 'true');
+				btn.disabled = true;
+			} else {
+				btn.removeAttribute('aria-disabled');
+				btn.disabled = false;
+			}
+		}
 	},
 		enhanceGrimoireMinigame: function() {
 		var MOD = this, grim = Game.Objects['Wizard tower'] && Game.Objects['Wizard tower'].minigame;
@@ -3547,6 +3576,7 @@ Game.registerMod("nvda accessibility", {
 						pan.slotGod(godObj, -1);
 						MOD.announce(godObj.name + ' removed from ' + slots[slotIdx] + ' slot');
 						MOD.createEnhancedPantheonPanel();
+						MOD.enhancePantheonMinigame();
 					});
 				})(i, god);
 				slotDiv.appendChild(clearBtn);
@@ -3589,6 +3619,7 @@ Game.registerMod("nvda accessibility", {
 						pan.slotGod(godObj, slotIdx);
 						MOD.announce(godObj.name + ' placed in ' + slots[slotIdx] + ' slot');
 						MOD.createEnhancedPantheonPanel();
+						MOD.enhancePantheonMinigame();
 					});
 					btnContainer.appendChild(slotBtn);
 				})(s, god);
