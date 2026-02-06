@@ -3445,15 +3445,46 @@ Game.registerMod("nvda accessibility", {
 			if (!slotEl.dataset.a11yEnhanced) {
 				slotEl.dataset.a11yEnhanced = 'true';
 				(function(slotIndex) {
+					function removeGodFromSlot() {
+						// Get fresh pantheon reference
+						var curPan = Game.Objects['Temple'] && Game.Objects['Temple'].minigame;
+						if (!curPan) return;
+						var godId = curPan.slot[slotIndex];
+						if (godId !== -1) {
+							var god = curPan.godsById[godId];
+							if (!god) return;
+							// Move god element and a11y elements back to roster (matching game's dropGod behavior)
+							var godEl = l('templeGod' + god.id);
+							var placeholder = l('templeGodPlaceholder' + god.id);
+							if (godEl && placeholder && placeholder.parentNode) {
+								// Find button container before moving anything
+								var btnContainer = godEl.nextSibling;
+								if (!btnContainer || btnContainer.className !== 'a11y-spirit-controls') btnContainer = null;
+								// Move a11y elements, then god, then buttons — all before the placeholder
+								var headingEl = l('a11y-god-heading-' + god.id);
+								var flavorEl = l('a11y-god-flavor-' + god.id);
+								var buffEl = l('a11y-god-buff-' + god.id);
+								var toMove = [headingEl, flavorEl, buffEl, godEl, btnContainer];
+								for (var ai = 0; ai < toMove.length; ai++) {
+									if (toMove[ai]) placeholder.parentNode.insertBefore(toMove[ai], placeholder);
+								}
+								placeholder.style.display = 'none';
+							}
+							curPan.slotGod(god, -1);
+							MOD.announce(god.name + ' removed from ' + slots[slotIndex] + ' slot');
+							MOD.enhancePantheonMinigame();
+						}
+					}
+					// keydown for focus mode and direct keyboard interaction
 					slotEl.addEventListener('keydown', function(e) {
 						if (e.key === 'Enter' || e.key === ' ') {
 							e.preventDefault();
-							if (pan.slot[slotIndex] !== -1) {
-								pan.slotGod(pan.godsById[pan.slot[slotIndex]], -1);
-								MOD.announce(slots[slotIndex] + ' slot cleared');
-								MOD.enhancePantheonMinigame();
-							}
+							removeGodFromSlot();
 						}
+					});
+					// click handles NVDA browse mode, which synthesizes click events on Enter for role="button"
+					slotEl.addEventListener('click', function(e) {
+						removeGodFromSlot();
 					});
 				})(i);
 			}
