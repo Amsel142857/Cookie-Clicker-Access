@@ -23,6 +23,8 @@ Game.registerMod("nvda accessibility", {
 		this.stormClickCount = 0;
 		// Override Game.DrawBuildings to inject accessibility labels
 		MOD.overrideDrawBuildings();
+		// Wrap Game.AssignPermanentSlot to label upgrade picker prompt
+		MOD.wrapPermanentSlotFunctions();
 		// Track if we've announced the fix
 		MOD.announcedFix = false;
 		setTimeout(function() {
@@ -98,72 +100,32 @@ Game.registerMod("nvda accessibility", {
 	},
 	labelAllBuildings: function() {
 		var MOD = this;
-		// Loop through all buildings
+		// bld.l is the store product button (product{id}), NOT the building row.
+		// Product button labels are handled by enhanceBuildingProduct().
+		// Building row labels are handled by labelBuildingRows().
+		// Here we only label minigame buttons (looked up by global ID).
 		for (var i in Game.ObjectsById) {
 			var bld = Game.ObjectsById[i];
 			if (!bld) continue;
-			// Get the building's DOM element via bld.l
-			var bldEl = bld.l;
-			if (!bldEl) continue;
 			var bldName = bld.name || 'Building';
 			var mg = bld.minigame;
 			var mgName = mg ? mg.name : '';
 			var level = parseInt(bld.level) || 0;
-			var lumpCost = level + 1;
-			var costText = (typeof Game.sayLumps === 'function') ? Game.sayLumps(lumpCost) : lumpCost + ' sugar lump' + (lumpCost > 1 ? 's' : '');
-			// Construct the full label - always show level if > 0
-			var fullLabel = bldName;
-			if (level > 0) {
-				fullLabel += ', Level ' + level;
-			}
-			if (mg && mgName) {
-				fullLabel += ' (' + mgName + ')';
-			}
-			if (level > 0) {
-				fullLabel += '. Upgrade cost: ' + costText;
-			}
-			// Apply label to the building's main container
-			MOD.setAttributeIfChanged(bldEl, 'aria-label', fullLabel);
-			// Find and label the level div within the building row
-			var levelDiv = bldEl.querySelector('.level, .objectLevel, [class*="evel"]');
-			if (levelDiv) {
-				MOD.setAttributeIfChanged(levelDiv, 'aria-label', fullLabel);
-				levelDiv.setAttribute('role', 'button');
-				levelDiv.setAttribute('tabindex', '0');
-			}
-			// Find the mute button and label it
-			var muteBtn = bldEl.querySelector('.objectMute, [onclick*="Mute"], [class*="mute"]');
-			if (muteBtn) {
-				MOD.setAttributeIfChanged(muteBtn, 'aria-label', 'Mute ' + bldName);
-				muteBtn.setAttribute('role', 'button');
-				muteBtn.setAttribute('tabindex', '0');
-			}
-			// Find the minigame/view button and label it based on level
-			// Try multiple methods: direct ID lookup first, then selector within building element
-			var mgBtn = l('productMinigameButton' + bld.id) ||
-			            bldEl.querySelector('.productMinigameButton, .objectMinigame, [onclick*="minigame"], [onclick*="switchMinigame"]');
+			// Label the minigame button (in sectionLeft, looked up by global ID)
+			var mgBtn = l('productMinigameButton' + bld.id);
 			if (mgBtn) {
-				// Check if minigame is unlocked (level >= 1) and has a minigame
 				var hasMinigame = bld.minigameUrl || bld.minigameName;
 				var minigameUnlocked = level >= 1 && hasMinigame;
-
 				if (minigameUnlocked && mg) {
-					// Minigame is unlocked and loaded - check open/close state using onMinigame flag
 					var isOpen = bld.onMinigame ? true : false;
 					MOD.setAttributeIfChanged(mgBtn, 'aria-label', (isOpen ? 'Close ' : 'Open ') + mgName);
 				} else if (minigameUnlocked) {
-					// Minigame unlocked but object not loaded yet
 					MOD.setAttributeIfChanged(mgBtn, 'aria-label', 'Open ' + (mgName || bld.minigameName || 'minigame'));
 				} else if (hasMinigame && level < 1) {
-					// Has minigame but not unlocked yet
 					MOD.setAttributeIfChanged(mgBtn, 'aria-label', 'Level up ' + bldName + ' to unlock ' + (mgName || bld.minigameName || 'minigame') + ' (1 sugar lump)');
 				}
 				mgBtn.setAttribute('role', 'button');
 				mgBtn.setAttribute('tabindex', '0');
-			}
-			// Debug: Log Wizard Tower specifically
-			if (bldName === 'Wizard tower') {
-				console.log('[A11y Mod] Labeled Wizard tower: ' + fullLabel + ', Level: ' + level + ', Minigame: ' + (mg ? 'Yes' : 'No'));
 			}
 		}
 		// Also label Special Tabs
@@ -1159,65 +1121,10 @@ Game.registerMod("nvda accessibility", {
 	enhanceBuildingElement: function(bld, bldName, mg, mgName, bldEl) {
 		var MOD = this;
 		if (!bldEl) return;
-		// Force aria-label onto the parent row container
-		var rowContainer = bldEl.closest('.row') || bldEl;
-		// If minigame exists and is active
-		if (mg) {
-			var level = mg.level || 0;
-			var lumpCost = level + 1;
-			var costText = lumpCost + ' sugar lump' + (lumpCost > 1 ? 's' : '');
-			// Build full label for the row
-			var fullLabel = bldName + ' (' + mgName + '), Level ' + level + ', Cost to upgrade: ' + costText;
-			// Apply to row container
-			MOD.setAttributeIfChanged(rowContainer, 'aria-label', fullLabel);
-			// Find ALL clickable divs with onclick but no text content
-			bldEl.querySelectorAll('div[onclick]').forEach(function(clickDiv) {
-				var text = (clickDiv.textContent || '').trim();
-				var onclickStr = clickDiv.getAttribute('onclick') || '';
-				// Force re-label every time (don't check a11yEnhanced for labels)
-				if (!text || text.match(/^[\d\s]*$/)) {
-					// No meaningful text - determine what this button does
-					var labelSet = false;
-					if (onclickStr.includes('Mute') || onclickStr.includes('mute') || clickDiv.classList.contains('objectMute')) {
-						MOD.setAttributeIfChanged(clickDiv, 'aria-label', 'Mute ' + bldName);
-						labelSet = true;
-					} else if (onclickStr.includes('minigame') || onclickStr.includes('Minigame')) {
-						MOD.setAttributeIfChanged(clickDiv, 'aria-label', 'Open ' + mgName);
-						labelSet = true;
-					} else if (onclickStr.includes('level') || onclickStr.includes('Level') || onclickStr.includes('lump')) {
-						MOD.setAttributeIfChanged(clickDiv, 'aria-label', bldName + ' (' + mgName + '), Level ' + level + ', Cost to upgrade: ' + costText);
-						labelSet = true;
-					}
-					// Only make focusable if we set a label
-					if (labelSet) {
-						clickDiv.setAttribute('role', 'button');
-						clickDiv.setAttribute('tabindex', '0');
-					}
-				}
-			});
-			// Also check for the specific level element
-			var levelEl = bldEl.querySelector('.label');
-			if (levelEl) {
-				MOD.setAttributeIfChanged(levelEl, 'aria-label', bldName + ' (' + mgName + '), Level ' + level + ', Cost to upgrade: ' + costText);
-				levelEl.setAttribute('role', 'button');
-				levelEl.setAttribute('tabindex', '0');
-			}
-			// Debug: Log when we successfully label Wizard Tower
-			if (bldName === 'Wizard tower') {
-				console.log('[A11y Mod] Successfully labeled Wizard tower (' + mgName + '), Level ' + level);
-			}
-		} else if (bld.minigameUrl && !bld.minigameLoaded) {
-			// Building has a minigame but it's not loaded yet
-			bldEl.querySelectorAll('div[onclick]').forEach(function(clickDiv) {
-				var onclickStr = clickDiv.getAttribute('onclick') || '';
-				if (onclickStr.includes('minigame') || onclickStr.includes('lump')) {
-					MOD.setAttributeIfChanged(clickDiv, 'aria-label', 'Unlock ' + (mgName || 'minigame') + ' for 1 sugar lump');
-					clickDiv.setAttribute('role', 'button');
-					clickDiv.setAttribute('tabindex', '0');
-				}
-			});
-		}
-		// Handle mute button specifically using bld.muteL
+		// bld.l (bldEl) is the store product button, NOT the building row.
+		// Product button labels are set by enhanceBuildingProduct().
+		// Building row labels are set by labelBuildingRows().
+		// Here we only handle the mute button (referenced directly via bld.muteL).
 		if (bld.muteL) {
 			MOD.setAttributeIfChanged(bld.muteL, 'aria-label', 'Mute ' + bldName);
 			bld.muteL.setAttribute('role', 'button');
@@ -1280,7 +1187,7 @@ Game.registerMod("nvda accessibility", {
 
 		// Determine buy/sell mode and bulk amount
 		var isBuyMode = Game.buyMode === 1;
-		var bulkAmount = Game.buyBulk;
+		var bulkAmount = Game.buyBulkShortcut ? Game.buyBulkOld : Game.buyBulk;
 
 		// Calculate the appropriate price based on mode
 		var price, priceStr, actionLabel, quantityLabel;
@@ -1308,12 +1215,6 @@ Game.registerMod("nvda accessibility", {
 
 			// Build label for buy mode
 			var lbl = bld.name;
-			if (Game.cookies >= price) {
-				lbl += ', Affordable';
-			} else {
-				var timeUntil = MOD.getTimeUntilAfford(price);
-				lbl += ', ' + timeUntil;
-			}
 			if (quantityLabel) {
 				lbl += ', ' + actionLabel + ' ' + quantityLabel + ' ' + priceStr;
 			} else {
@@ -1341,8 +1242,14 @@ Game.registerMod("nvda accessibility", {
 			MOD.setAttributeIfChanged(el, 'aria-label', lbl);
 		}
 
+		el.removeAttribute('aria-labelledby');
 		el.setAttribute('role', 'button');
 		el.setAttribute('tabindex', '0');
+		// Hide all child elements inside the product button from screen readers
+		// so only our aria-label is announced (prevents duplicate name/price/owned reading)
+		for (var c = 0; c < el.children.length; c++) {
+			el.children[c].setAttribute('aria-hidden', 'true');
+		}
 		// Add info text (not a button) with building stats below
 		MOD.ensureBuildingInfoText(bld);
 	},
@@ -2771,7 +2678,7 @@ Game.registerMod("nvda accessibility", {
 			var lines = [];
 			// Calculate price based on current bulk mode
 			var isBuyMode = Game.buyMode === 1;
-			var bulkAmount = Game.buyBulk;
+			var bulkAmount = Game.buyBulkShortcut ? Game.buyBulkOld : Game.buyBulk;
 
 			if (isBuyMode) {
 				var price;
@@ -2780,9 +2687,11 @@ Game.registerMod("nvda accessibility", {
 				} else {
 					price = building.getSumPrice ? building.getSumPrice(bulkAmount) : building.price * bulkAmount;
 				}
-				var timeLabel = bulkAmount > 1 ? 'Time until ' + bulkAmount + ' affordable: ' : 'Time until affordable: ';
-				if (bulkAmount === -1) timeLabel = 'Time until max affordable: ';
-				lines.push(timeLabel + MOD.getTimeUntilAfford(price));
+				if (Game.cookies >= price) {
+					lines.push('Affordable');
+				} else {
+					lines.push('Cannot afford, ' + MOD.getTimeUntilAfford(price));
+				}
 			}
 			// In sell mode, don't show time until affordable
 
@@ -2873,22 +2782,11 @@ Game.registerMod("nvda accessibility", {
 		var a = l('ariaReader-upgrade-' + u.id);
 		if (a) {
 			var n = u.dname || u.name;
-			var p = Beautify(Math.round(u.getPrice()));
 			var t = n + '. ';
 			if (u.bought) {
-				t += 'Purchased. ';
-			} else if (u.canBuy()) {
-				t += 'Affordable. Cost: ' + p + '. ';
+				t += 'Purchased.';
 			} else {
-				// Cannot afford - show time until affordable
-				var timeText = MOD.getTimeUntilAfford(u.getPrice());
-				t += 'Cannot afford, ' + timeText + '. Cost: ' + p + '. ';
-			}
-			// For toggle upgrades, use our enhanced effect description
-			if (u.pool === 'toggle') {
-				t += MOD.getToggleUpgradeEffect(u);
-			} else if (u.desc) {
-				t += MOD.stripHtml(u.desc);
+				t += 'Cost: ' + Beautify(Math.round(u.getPrice())) + '.';
 			}
 			a.innerHTML = t;
 		}
@@ -2908,14 +2806,13 @@ Game.registerMod("nvda accessibility", {
 		// Check if info text already exists
 		var textId = 'a11y-upgrade-info-' + u.id;
 		var existingText = l(textId);
-		// Build the info text matching the button label format
-		var price = Beautify(Math.round(u.getPrice()));
+		// Build the info text - cost is already in the button aria-label
 		var infoText = '';
 		if (u.canBuy()) {
-			infoText = 'Affordable. Cost: ' + price + '. ' + MOD.stripHtml(u.desc || '');
+			infoText = 'Affordable. ' + MOD.stripHtml(u.desc || '');
 		} else {
 			var timeText = MOD.getTimeUntilAfford(u.getPrice());
-			infoText = 'Cannot afford, ' + timeText + '. Cost: ' + price + '. ' + MOD.stripHtml(u.desc || '');
+			infoText = 'Cannot afford, ' + timeText + '. ' + MOD.stripHtml(u.desc || '');
 		}
 		if (existingText) {
 			existingText.textContent = infoText;
@@ -2946,10 +2843,7 @@ Game.registerMod("nvda accessibility", {
 		var lbl = n;
 		if (v) lbl += ' (Vaulted)';
 		if (u.bought) lbl += ' (Purchased)';
-		// For toggle upgrades, add effect description
-		if (isToggle || u.pool === 'toggle') {
-			lbl += '. ' + MOD.getToggleUpgradeEffect(u);
-		}
+		if (!u.bought) lbl += ', Cost: ' + Beautify(Math.round(u.getPrice()));
 		c.setAttribute('aria-label', lbl);
 		c.setAttribute('role', 'button');
 		c.setAttribute('tabindex', '0');
@@ -2991,6 +2885,128 @@ Game.registerMod("nvda accessibility", {
 		// Default: use the upgrade's description
 		return MOD.stripHtml(u.desc || '');
 	},
+	wrapPermanentSlotFunctions: function() {
+		var MOD = this;
+		// Wrap Game.AssignPermanentSlot so we can label the upgrade picker prompt
+		if (Game.AssignPermanentSlot) {
+			var origAssign = Game.AssignPermanentSlot;
+			Game.AssignPermanentSlot = function(slot) {
+				origAssign.apply(this, arguments);
+				// Label the crates in the prompt after it renders
+				setTimeout(function() { MOD.labelPermanentUpgradePrompt(); }, 50);
+			};
+		}
+		// Wrap Game.PutUpgradeInPermanentSlot to announce selections and relabel
+		if (Game.PutUpgradeInPermanentSlot) {
+			var origPut = Game.PutUpgradeInPermanentSlot;
+			Game.PutUpgradeInPermanentSlot = function(upgrade, slot) {
+				origPut.apply(this, arguments);
+				// Announce the selected upgrade
+				var upg = Game.UpgradesById[upgrade];
+				if (upg) {
+					var name = upg.dname || upg.name;
+					MOD.announce('Selected: ' + name);
+				}
+				// Relabel the selected upgrade display
+				setTimeout(function() { MOD.labelPermanentUpgradePromptSelected(); }, 50);
+			};
+		}
+		// Wrap Game.PickAscensionMode to label challenge mode crates in the prompt
+		if (Game.PickAscensionMode) {
+			var origPick = Game.PickAscensionMode;
+			Game.PickAscensionMode = function() {
+				origPick.apply(this, arguments);
+				setTimeout(function() { MOD.labelChallengeModePrompt(); }, 50);
+			};
+		}
+		// Wrap Game.UpdateAscensionModePrompt to re-label the button after it rebuilds
+		if (Game.UpdateAscensionModePrompt) {
+			var origUpdateMode = Game.UpdateAscensionModePrompt;
+			Game.UpdateAscensionModePrompt = function() {
+				origUpdateMode.apply(this, arguments);
+				setTimeout(function() { MOD.labelAscendModeButton(); }, 50);
+			};
+		}
+	},
+	labelPermanentUpgradePrompt: function() {
+		var MOD = this;
+		var promptContent = l('promptContentPickPermaUpgrade');
+		if (!promptContent) return;
+		// Label all upgrade crate buttons in the picker list
+		var crates = promptContent.querySelectorAll('button.crate[data-id]');
+		crates.forEach(function(crate) {
+			var upgId = parseInt(crate.getAttribute('data-id'));
+			var upg = Game.UpgradesById[upgId];
+			if (!upg) return;
+			var name = upg.dname || upg.name;
+			var desc = MOD.stripHtml(upg.desc || '');
+			var lbl = name + '. ' + desc;
+			// Populate the srOnly label inside the button (used by aria-labelledby)
+			var srLabel = crate.querySelector('label.srOnly');
+			if (srLabel) srLabel.textContent = lbl;
+			// Also set aria-label directly as fallback
+			crate.setAttribute('aria-label', lbl);
+		});
+		// Label the currently selected upgrade display
+		MOD.labelPermanentUpgradePromptSelected();
+		// Label the Confirm/Cancel option links as buttons
+		var options = promptContent.parentElement ? promptContent.parentElement.querySelectorAll('a.option') : [];
+		for (var i = 0; i < options.length; i++) {
+			options[i].setAttribute('role', 'button');
+		}
+	},
+	labelPermanentUpgradePromptSelected: function() {
+		var MOD = this;
+		// Label the "selected upgrade" display crate in the prompt
+		var slotWrap = l('upgradeToSlotWrap');
+		if (slotWrap) {
+			var selectedCrate = slotWrap.querySelector('button.crate[data-id]');
+			if (selectedCrate) {
+				var upgId = parseInt(selectedCrate.getAttribute('data-id'));
+				var upg = Game.UpgradesById[upgId];
+				if (upg && Game.SelectingPermanentUpgrade !== -1) {
+					var name = upg.dname || upg.name;
+					var desc = MOD.stripHtml(upg.desc || '');
+					var lbl = 'Selected upgrade: ' + name + '. ' + desc;
+					var srLabel = selectedCrate.querySelector('label.srOnly');
+					if (srLabel) srLabel.textContent = lbl;
+					selectedCrate.setAttribute('aria-label', lbl);
+				}
+			}
+		}
+		// Label the empty slot indicator
+		var slotNone = l('upgradeToSlotNone');
+		if (slotNone) {
+			slotNone.setAttribute('aria-label', 'No upgrade selected');
+		}
+	},
+	labelChallengeModePrompt: function() {
+		var MOD = this;
+		var promptContent = l('promptContentPickChallengeMode');
+		if (!promptContent) return;
+		// Label each challenge mode crate
+		for (var i in Game.ascensionModes) {
+			var el = l('challengeModeSelector' + i);
+			if (!el) continue;
+			var mode = Game.ascensionModes[i];
+			var name = mode.dname || mode.name || 'Unknown';
+			var selected = (parseInt(i) === Game.nextAscensionMode) ? ' Currently selected.' : '';
+			el.setAttribute('aria-label', name + '.' + selected);
+			el.setAttribute('role', 'button');
+			el.setAttribute('tabindex', '0');
+			if (!el.dataset.a11yEnhanced) {
+				el.dataset.a11yEnhanced = 'true';
+				el.addEventListener('keydown', function(e) {
+					if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.target.click(); }
+				});
+			}
+		}
+		// Label the Confirm option link
+		var options = promptContent.parentElement ? promptContent.parentElement.querySelectorAll('a.option') : [];
+		for (var j = 0; j < options.length; j++) {
+			options[j].setAttribute('role', 'button');
+		}
+	},
 	enhanceAscensionUI: function() {
 		var MOD = this;
 		var ao = l('ascendOverlay');
@@ -3004,11 +3020,52 @@ Game.registerMod("nvda accessibility", {
 				ab.addEventListener('keydown', function(e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); ab.click(); } });
 			}
 		}
-		var d1 = l('ascendData1'), d2 = l('ascendData2');
-		if (d1) d1.setAttribute('aria-hidden', 'true');
-		if (d2) d2.setAttribute('aria-hidden', 'true');
+		// Make prestige and heavenly chips data accessible
+		var d1 = l('ascendData1');
+		if (d1) {
+			d1.removeAttribute('aria-hidden');
+			d1.setAttribute('tabindex', '0');
+			d1.setAttribute('aria-label', 'Prestige level: ' + Beautify(Game.prestige));
+		}
+		var d2 = l('ascendData2');
+		if (d2) {
+			d2.removeAttribute('aria-hidden');
+			d2.setAttribute('tabindex', '0');
+			d2.setAttribute('aria-label', 'Heavenly chips: ' + Beautify(Game.heavenlyChips));
+		}
+		// Label the challenge mode selector button
+		MOD.labelAscendModeButton();
+		// Hide decorative/instructional elements from screen readers
+		var ai = l('ascendInfo');
+		if (ai) ai.setAttribute('aria-hidden', 'true');
 		MOD.enhanceHeavenlyUpgrades();
 		MOD.enhancePermanentUpgradeSlots();
+	},
+	labelAscendModeButton: function() {
+		var MOD = this;
+		var modeBtn = l('ascendModeButton');
+		if (!modeBtn) return;
+		// The ascendModeButton contains a crate div that opens the challenge mode picker
+		var crate = modeBtn.querySelector('.crate');
+		if (crate) {
+			var modeName = Game.ascensionModes && Game.ascensionModes[Game.nextAscensionMode]
+				? Game.ascensionModes[Game.nextAscensionMode].dname : 'None';
+			crate.setAttribute('aria-label', 'Challenge mode: ' + modeName + '. Click to change.');
+			crate.setAttribute('role', 'button');
+			crate.setAttribute('tabindex', '0');
+			if (!crate.dataset.a11yEnhanced) {
+				crate.dataset.a11yEnhanced = 'true';
+				crate.addEventListener('keydown', function(e) {
+					if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); crate.click(); }
+				});
+			}
+		}
+	},
+	updateAscendDataLabels: function() {
+		var d1 = l('ascendData1');
+		if (d1) d1.setAttribute('aria-label', 'Prestige level: ' + Beautify(Game.prestige));
+		var d2 = l('ascendData2');
+		if (d2) d2.setAttribute('aria-label', 'Heavenly chips: ' + Beautify(Game.heavenlyChips));
 	},
 	enhancePermanentUpgradeSlots: function() {
 		var MOD = this;
@@ -3236,6 +3293,14 @@ Game.registerMod("nvda accessibility", {
 			MOD.trackRapidFireEvents();
 			MOD.trackShimmerAnnouncements();
 		}
+		// Detect Grimoire panel open/close and enhance immediately
+		var wizTower = Game.Objects['Wizard tower'];
+		if (wizTower && wizTower.minigame) {
+			if (wizTower.onMinigame && !MOD.lastGrimoireOpen) {
+				MOD.enhanceGrimoireMinigame();
+			}
+			MOD.lastGrimoireOpen = wizTower.onMinigame;
+		}
 		// Run building minigame labels every 30 ticks
 		if (Game.T % 30 === 0) {
 			MOD.enhanceBuildingMinigames();
@@ -3296,11 +3361,15 @@ Game.registerMod("nvda accessibility", {
 				MOD.enhanceHeavenlyUpgrades();
 				MOD.enhancePermanentUpgradeSlots();
 				MOD.labelStatsHeavenly();
+				MOD.labelAscendModeButton();
+				MOD.updateAscendDataLabels();
 			}
 			if (MOD.lastHeavenlyChips !== Game.heavenlyChips) {
 				MOD.lastHeavenlyChips = Game.heavenlyChips;
 				MOD.enhanceHeavenlyUpgrades();
 				MOD.labelStatsHeavenly();
+				MOD.updateAscendDataLabels();
+				MOD.labelAscendModeButton();
 			}
 		} else {
 			if (MOD.wasOnAscend) {
@@ -3315,7 +3384,7 @@ Game.registerMod("nvda accessibility", {
 		var MOD = this;
 		// Populate ariaReader-product-* labels for buildings (created by game when screenreader=1)
 		var isBuyMode = Game.buyMode === 1;
-		var bulkAmount = Game.buyBulk;
+		var bulkAmount = Game.buyBulkShortcut ? Game.buyBulkOld : Game.buyBulk;
 
 		for (var i in Game.ObjectsById) {
 			var bld = Game.ObjectsById[i];
@@ -3352,9 +3421,6 @@ Game.registerMod("nvda accessibility", {
 					}
 				}
 
-				if (bld.storedTotalCps) {
-					label += ' Produces: ' + Beautify(bld.storedTotalCps, 1) + ' CPS total.';
-				}
 				MOD.setTextIfChanged(ariaLabel, label);
 			}
 		}
@@ -3780,37 +3846,12 @@ Game.registerMod("nvda accessibility", {
 	// MODULE: Building Levels (Sugar Lump)
 	// ============================================
 	labelBuildingLevels: function() {
-		var MOD = this;
+		// Level/upgrade-cost/sugar-lump info is already on building row buttons above the store.
+		// Remove any previously created level label elements to avoid duplication.
 		var numBuildings = Game.ObjectsN || 0;
 		for (var i = 0; i < numBuildings; i++) {
-			var bld = Game.ObjectsById[i];
-			if (!bld || !bld.l) continue;
-			// Get the actual level value - use parseInt to handle string values
-			var level = parseInt(bld.level) || 0;
-			var lumpCost = level + 1;
-			// Find or create level label
-			var levelLabelId = 'a11yBuildingLevel' + bld.id;
-			var levelLabel = l(levelLabelId);
-			if (!levelLabel) {
-				levelLabel = document.createElement('div');
-				levelLabel.id = levelLabelId;
-				levelLabel.setAttribute('role', 'status');
-				levelLabel.setAttribute('tabindex', '0');
-				levelLabel.style.cssText = 'background:#222;color:#fff;padding:4px 8px;margin:2px 0;font-size:11px;border:1px solid #444;';
-				var productEl = l('product' + bld.id);
-				if (productEl && productEl.parentNode) {
-					productEl.parentNode.insertBefore(levelLabel, productEl.nextSibling);
-				}
-			}
-			var minigameName = bld.minigame ? bld.minigame.name : '';
-			var text = 'Level ' + level;
-			if (minigameName) text += ' (' + minigameName + ')';
-			text += '. Upgrade cost: ' + lumpCost + ' sugar lump' + (lumpCost > 1 ? 's' : '');
-			if (Game.lumps >= lumpCost) {
-				text += ' (Can afford)';
-			}
-			MOD.setTextIfChanged(levelLabel, text);
-			MOD.setAttributeIfChanged(levelLabel, 'aria-label', bld.name + ' ' + text);
+			var el = l('a11yBuildingLevel' + i);
+			if (el) el.remove();
 		}
 	},
 
