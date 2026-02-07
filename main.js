@@ -123,18 +123,18 @@ Game.registerMod("nvda accessibility", {
 				fullLabel += '. Upgrade cost: ' + costText;
 			}
 			// Apply label to the building's main container
-			bldEl.setAttribute('aria-label', fullLabel);
+			MOD.setAttributeIfChanged(bldEl, 'aria-label', fullLabel);
 			// Find and label the level div within the building row
 			var levelDiv = bldEl.querySelector('.level, .objectLevel, [class*="evel"]');
 			if (levelDiv) {
-				levelDiv.setAttribute('aria-label', fullLabel);
+				MOD.setAttributeIfChanged(levelDiv, 'aria-label', fullLabel);
 				levelDiv.setAttribute('role', 'button');
 				levelDiv.setAttribute('tabindex', '0');
 			}
 			// Find the mute button and label it
 			var muteBtn = bldEl.querySelector('.objectMute, [onclick*="Mute"], [class*="mute"]');
 			if (muteBtn) {
-				muteBtn.setAttribute('aria-label', 'Mute ' + bldName);
+				MOD.setAttributeIfChanged(muteBtn, 'aria-label', 'Mute ' + bldName);
 				muteBtn.setAttribute('role', 'button');
 				muteBtn.setAttribute('tabindex', '0');
 			}
@@ -150,13 +150,13 @@ Game.registerMod("nvda accessibility", {
 				if (minigameUnlocked && mg) {
 					// Minigame is unlocked and loaded - check open/close state using onMinigame flag
 					var isOpen = bld.onMinigame ? true : false;
-					mgBtn.setAttribute('aria-label', (isOpen ? 'Close ' : 'Open ') + mgName);
+					MOD.setAttributeIfChanged(mgBtn, 'aria-label', (isOpen ? 'Close ' : 'Open ') + mgName);
 				} else if (minigameUnlocked) {
 					// Minigame unlocked but object not loaded yet
-					mgBtn.setAttribute('aria-label', 'Open ' + (mgName || bld.minigameName || 'minigame'));
+					MOD.setAttributeIfChanged(mgBtn, 'aria-label', 'Open ' + (mgName || bld.minigameName || 'minigame'));
 				} else if (hasMinigame && level < 1) {
 					// Has minigame but not unlocked yet
-					mgBtn.setAttribute('aria-label', 'Level up ' + bldName + ' to unlock ' + (mgName || bld.minigameName || 'minigame') + ' (1 sugar lump)');
+					MOD.setAttributeIfChanged(mgBtn, 'aria-label', 'Level up ' + bldName + ' to unlock ' + (mgName || bld.minigameName || 'minigame') + ' (1 sugar lump)');
 				}
 				mgBtn.setAttribute('role', 'button');
 				mgBtn.setAttribute('tabindex', '0');
@@ -185,7 +185,7 @@ Game.registerMod("nvda accessibility", {
 				} else {
 					label = tabName + ' tab';
 				}
-				tabEl.setAttribute('aria-label', label);
+				MOD.setAttributeIfChanged(tabEl, 'aria-label', label);
 				tabEl.setAttribute('role', 'button');
 				tabEl.setAttribute('tabindex', '0');
 			}
@@ -193,13 +193,13 @@ Game.registerMod("nvda accessibility", {
 		// Also check for dragon/santa buttons directly in the DOM
 		var dragonBtn = l('specialTab0') || document.querySelector('[onclick*="dragon"], [onclick*="Dragon"], .dragonButton');
 		if (dragonBtn) {
-			dragonBtn.setAttribute('aria-label', 'Krumblor the Dragon');
+			MOD.setAttributeIfChanged(dragonBtn, 'aria-label', 'Krumblor the Dragon');
 			dragonBtn.setAttribute('role', 'button');
 			dragonBtn.setAttribute('tabindex', '0');
 		}
 		var santaBtn = l('specialTab1') || document.querySelector('[onclick*="santa"], [onclick*="Santa"], .santaButton');
 		if (santaBtn) {
-			santaBtn.setAttribute('aria-label', "Santa's Progress");
+			MOD.setAttributeIfChanged(santaBtn, 'aria-label', "Santa's Progress");
 			santaBtn.setAttribute('role', 'button');
 			santaBtn.setAttribute('tabindex', '0');
 		}
@@ -210,11 +210,11 @@ Game.registerMod("nvda accessibility", {
 				if (!btn.getAttribute('aria-label')) {
 					var onclickStr = btn.getAttribute('onclick') || '';
 					if (onclickStr.includes('dragon') || onclickStr.includes('Dragon')) {
-						btn.setAttribute('aria-label', 'Krumblor the Dragon');
+						MOD.setAttributeIfChanged(btn, 'aria-label', 'Krumblor the Dragon');
 					} else if (onclickStr.includes('santa') || onclickStr.includes('Santa')) {
-						btn.setAttribute('aria-label', "Santa's Progress");
+						MOD.setAttributeIfChanged(btn, 'aria-label', "Santa's Progress");
 					} else if (onclickStr.includes('season') || onclickStr.includes('Season')) {
-						btn.setAttribute('aria-label', 'Season Switcher');
+						MOD.setAttributeIfChanged(btn, 'aria-label', 'Season Switcher');
 					}
 					btn.setAttribute('role', 'button');
 					btn.setAttribute('tabindex', '0');
@@ -276,6 +276,22 @@ Game.registerMod("nvda accessibility", {
 		if (a) a.textContent = '';
 		if (u) u.textContent = '';
 		if (u) { setTimeout(function() { u.textContent = t; }, 50); }
+	},
+	// Helper functions to prevent unnecessary DOM mutations
+	// Only update attributes/text if the value has actually changed
+	// This prevents VoiceOver from constantly re-reading unchanged labels
+	setAttributeIfChanged: function(element, attributeName, newValue) {
+		if (!element) return;
+		var currentValue = element.getAttribute(attributeName);
+		if (currentValue !== newValue) {
+			element.setAttribute(attributeName, newValue);
+		}
+	},
+	setTextIfChanged: function(element, newText) {
+		if (!element) return;
+		if (element.textContent !== newText) {
+			element.textContent = newText;
+		}
 	},
 	createWrinklerOverlays: function() {
 		var MOD = this;
@@ -1153,7 +1169,7 @@ Game.registerMod("nvda accessibility", {
 			// Build full label for the row
 			var fullLabel = bldName + ' (' + mgName + '), Level ' + level + ', Cost to upgrade: ' + costText;
 			// Apply to row container
-			rowContainer.setAttribute('aria-label', fullLabel);
+			MOD.setAttributeIfChanged(rowContainer, 'aria-label', fullLabel);
 			// Find ALL clickable divs with onclick but no text content
 			bldEl.querySelectorAll('div[onclick]').forEach(function(clickDiv) {
 				var text = (clickDiv.textContent || '').trim();
@@ -1163,13 +1179,13 @@ Game.registerMod("nvda accessibility", {
 					// No meaningful text - determine what this button does
 					var labelSet = false;
 					if (onclickStr.includes('Mute') || onclickStr.includes('mute') || clickDiv.classList.contains('objectMute')) {
-						clickDiv.setAttribute('aria-label', 'Mute ' + bldName);
+						MOD.setAttributeIfChanged(clickDiv, 'aria-label', 'Mute ' + bldName);
 						labelSet = true;
 					} else if (onclickStr.includes('minigame') || onclickStr.includes('Minigame')) {
-						clickDiv.setAttribute('aria-label', 'Open ' + mgName);
+						MOD.setAttributeIfChanged(clickDiv, 'aria-label', 'Open ' + mgName);
 						labelSet = true;
 					} else if (onclickStr.includes('level') || onclickStr.includes('Level') || onclickStr.includes('lump')) {
-						clickDiv.setAttribute('aria-label', bldName + ' (' + mgName + '), Level ' + level + ', Cost to upgrade: ' + costText);
+						MOD.setAttributeIfChanged(clickDiv, 'aria-label', bldName + ' (' + mgName + '), Level ' + level + ', Cost to upgrade: ' + costText);
 						labelSet = true;
 					}
 					// Only make focusable if we set a label
@@ -1182,7 +1198,7 @@ Game.registerMod("nvda accessibility", {
 			// Also check for the specific level element
 			var levelEl = bldEl.querySelector('.label');
 			if (levelEl) {
-				levelEl.setAttribute('aria-label', bldName + ' (' + mgName + '), Level ' + level + ', Cost to upgrade: ' + costText);
+				MOD.setAttributeIfChanged(levelEl, 'aria-label', bldName + ' (' + mgName + '), Level ' + level + ', Cost to upgrade: ' + costText);
 				levelEl.setAttribute('role', 'button');
 				levelEl.setAttribute('tabindex', '0');
 			}
@@ -1195,7 +1211,7 @@ Game.registerMod("nvda accessibility", {
 			bldEl.querySelectorAll('div[onclick]').forEach(function(clickDiv) {
 				var onclickStr = clickDiv.getAttribute('onclick') || '';
 				if (onclickStr.includes('minigame') || onclickStr.includes('lump')) {
-					clickDiv.setAttribute('aria-label', 'Unlock ' + (mgName || 'minigame') + ' for 1 sugar lump');
+					MOD.setAttributeIfChanged(clickDiv, 'aria-label', 'Unlock ' + (mgName || 'minigame') + ' for 1 sugar lump');
 					clickDiv.setAttribute('role', 'button');
 					clickDiv.setAttribute('tabindex', '0');
 				}
@@ -1203,7 +1219,7 @@ Game.registerMod("nvda accessibility", {
 		}
 		// Handle mute button specifically using bld.muteL
 		if (bld.muteL) {
-			bld.muteL.setAttribute('aria-label', 'Mute ' + bldName);
+			MOD.setAttributeIfChanged(bld.muteL, 'aria-label', 'Mute ' + bldName);
 			bld.muteL.setAttribute('role', 'button');
 			bld.muteL.setAttribute('tabindex', '0');
 		}
@@ -1214,7 +1230,7 @@ Game.registerMod("nvda accessibility", {
 		var storeBulkBuy = l('storeBulkBuy');
 		var storeBulkSell = l('storeBulkSell');
 		if (storeBulkBuy) {
-			storeBulkBuy.setAttribute('aria-label', 'Buy mode - purchase buildings');
+			MOD.setAttributeIfChanged(storeBulkBuy, 'aria-label', 'Buy mode - purchase buildings');
 			storeBulkBuy.setAttribute('role', 'button');
 			storeBulkBuy.setAttribute('tabindex', '0');
 			if (!storeBulkBuy.dataset.a11yEnhanced) {
@@ -1225,7 +1241,7 @@ Game.registerMod("nvda accessibility", {
 			}
 		}
 		if (storeBulkSell) {
-			storeBulkSell.setAttribute('aria-label', 'Sell mode - sell buildings');
+			MOD.setAttributeIfChanged(storeBulkSell, 'aria-label', 'Sell mode - sell buildings');
 			storeBulkSell.setAttribute('role', 'button');
 			storeBulkSell.setAttribute('tabindex', '0');
 			if (!storeBulkSell.dataset.a11yEnhanced) {
@@ -1245,7 +1261,7 @@ Game.registerMod("nvda accessibility", {
 		amounts.forEach(function(amt) {
 			var btn = l(amt.id);
 			if (btn) {
-				btn.setAttribute('aria-label', amt.label);
+				MOD.setAttributeIfChanged(btn, 'aria-label', amt.label);
 				btn.setAttribute('role', 'button');
 				btn.setAttribute('tabindex', '0');
 				if (!btn.dataset.a11yEnhanced) {
@@ -1304,7 +1320,7 @@ Game.registerMod("nvda accessibility", {
 				lbl += ', Cost: ' + priceStr;
 			}
 			lbl += ', ' + owned + ' owned';
-			el.setAttribute('aria-label', lbl);
+			MOD.setAttributeIfChanged(el, 'aria-label', lbl);
 		} else {
 			// Sell mode - calculate sell value
 			if (bulkAmount === -1) {
@@ -1322,7 +1338,7 @@ Game.registerMod("nvda accessibility", {
 			var lbl = bld.name;
 			lbl += ', Sell ' + quantityLabel + ' for ' + priceStr;
 			lbl += ', ' + owned + ' owned';
-			el.setAttribute('aria-label', lbl);
+			MOD.setAttributeIfChanged(el, 'aria-label', lbl);
 		}
 
 		el.setAttribute('role', 'button');
@@ -1342,7 +1358,7 @@ Game.registerMod("nvda accessibility", {
 		var levelEl = mgContainer.querySelector('.minigameLevel');
 		if (levelEl) {
 			levelEl.setAttribute('role', 'status');
-			levelEl.setAttribute('aria-label', bldName + ' - ' + mgName + ' minigame, Level ' + mg.level);
+			MOD.setAttributeIfChanged(levelEl, 'aria-label', bldName + ' - ' + mgName + ' minigame, Level ' + mg.level);
 		}
 		// Level up button - include building name
 		var levelUpBtn = mgContainer.querySelector('.minigameLevelUp');
@@ -1353,7 +1369,7 @@ Game.registerMod("nvda accessibility", {
 			lbl += 'Cost: ' + lumpCost + ' sugar lump' + (lumpCost > 1 ? 's' : '') + '. ';
 			lbl += 'Current level: ' + mg.level + '. ';
 			lbl += canAfford ? 'Can afford.' : 'Need more lumps.';
-			levelUpBtn.setAttribute('aria-label', lbl);
+			MOD.setAttributeIfChanged(levelUpBtn, 'aria-label', lbl);
 			levelUpBtn.setAttribute('role', 'button');
 			levelUpBtn.setAttribute('tabindex', '0');
 			if (!levelUpBtn.dataset.a11yEnhanced) {
@@ -1368,7 +1384,7 @@ Game.registerMod("nvda accessibility", {
 		if (muteBtn) {
 			var isMuted = Game.prefs && Game.prefs['minigameMute' + bldId];
 			var muteLbl = (isMuted ? 'Unmute ' : 'Mute ') + bldName;
-			muteBtn.setAttribute('aria-label', muteLbl);
+			MOD.setAttributeIfChanged(muteBtn, 'aria-label', muteLbl);
 			muteBtn.setAttribute('role', 'button');
 			muteBtn.setAttribute('tabindex', '0');
 			if (!muteBtn.dataset.a11yEnhanced) {
@@ -1381,7 +1397,7 @@ Game.registerMod("nvda accessibility", {
 		// Close/minimize button - include building name
 		var closeBtn = mgContainer.querySelector('.minigameClose');
 		if (closeBtn) {
-			closeBtn.setAttribute('aria-label', 'Close ' + bldName + ' ' + mgName + ' minigame panel');
+			MOD.setAttributeIfChanged(closeBtn, 'aria-label', 'Close ' + bldName + ' ' + mgName + ' minigame panel');
 			closeBtn.setAttribute('role', 'button');
 			closeBtn.setAttribute('tabindex', '0');
 			if (!closeBtn.dataset.a11yEnhanced) {
@@ -3296,6 +3312,7 @@ Game.registerMod("nvda accessibility", {
 		}
 	},
 	populateProductLabels: function() {
+		var MOD = this;
 		// Populate ariaReader-product-* labels for buildings (created by game when screenreader=1)
 		var isBuyMode = Game.buyMode === 1;
 		var bulkAmount = Game.buyBulk;
@@ -3338,7 +3355,7 @@ Game.registerMod("nvda accessibility", {
 				if (bld.storedTotalCps) {
 					label += ' Produces: ' + Beautify(bld.storedTotalCps, 1) + ' CPS total.';
 				}
-				ariaLabel.textContent = label;
+				MOD.setTextIfChanged(ariaLabel, label);
 			}
 		}
 	},
@@ -3609,39 +3626,39 @@ Game.registerMod("nvda accessibility", {
 					productEl.removeAttribute('aria-hidden');
 					var cost = Beautify(bld.price);
 					var timeUntil = MOD.getTimeUntilAfford(bld.price);
-					productEl.setAttribute('aria-label', 'Mystery building. Cost: ' + cost + ' cookies. Time until affordable: ' + timeUntil);
+					MOD.setAttributeIfChanged(productEl, 'aria-label', 'Mystery building. Cost: ' + cost + ' cookies. Time until affordable: ' + timeUntil);
 					if (infoBtn) {
 						infoBtn.style.display = 'none';
-						infoBtn.setAttribute('aria-hidden', 'true');
+						MOD.setAttributeIfChanged(infoBtn, 'aria-hidden', 'true');
 					}
 					if (levelLabel) {
 						levelLabel.style.display = 'none';
-						levelLabel.setAttribute('aria-hidden', 'true');
+						MOD.setAttributeIfChanged(levelLabel, 'aria-hidden', 'true');
 					}
 				} else {
 					// Too far ahead - hide completely
 					productEl.style.display = 'none';
-					productEl.setAttribute('aria-hidden', 'true');
+					MOD.setAttributeIfChanged(productEl, 'aria-hidden', 'true');
 					if (infoBtn) {
 						infoBtn.style.display = 'none';
-						infoBtn.setAttribute('aria-hidden', 'true');
+						MOD.setAttributeIfChanged(infoBtn, 'aria-hidden', 'true');
 					}
 					if (levelLabel) {
 						levelLabel.style.display = 'none';
-						levelLabel.setAttribute('aria-hidden', 'true');
+						MOD.setAttributeIfChanged(levelLabel, 'aria-hidden', 'true');
 					}
 				}
 			} else {
 				// Locked building - hide completely
 				productEl.style.display = 'none';
-				productEl.setAttribute('aria-hidden', 'true');
+				MOD.setAttributeIfChanged(productEl, 'aria-hidden', 'true');
 				if (infoBtn) {
 					infoBtn.style.display = 'none';
-					infoBtn.setAttribute('aria-hidden', 'true');
+					MOD.setAttributeIfChanged(infoBtn, 'aria-hidden', 'true');
 				}
 				if (levelLabel) {
 					levelLabel.style.display = 'none';
-					levelLabel.setAttribute('aria-hidden', 'true');
+					MOD.setAttributeIfChanged(levelLabel, 'aria-hidden', 'true');
 				}
 			}
 		}
@@ -3792,8 +3809,8 @@ Game.registerMod("nvda accessibility", {
 			if (Game.lumps >= lumpCost) {
 				text += ' (Can afford)';
 			}
-			levelLabel.textContent = text;
-			levelLabel.setAttribute('aria-label', bld.name + ' ' + text);
+			MOD.setTextIfChanged(levelLabel, text);
+			MOD.setAttributeIfChanged(levelLabel, 'aria-label', bld.name + ' ' + text);
 		}
 	},
 
@@ -3854,6 +3871,7 @@ Game.registerMod("nvda accessibility", {
 		};
 	},
 	updateMilkDisplay: function() {
+		var MOD = this;
 		var milkDiv = l('a11yMilkDisplay');
 		if (!milkDiv) return;
 
@@ -3873,8 +3891,8 @@ Game.registerMod("nvda accessibility", {
 		// Shorter visible text
 		var displayText = 'Milk: ' + info.milkName + ' (Rank ' + info.romanRank + ', ' + info.percent + '%)';
 
-		milkDiv.textContent = displayText;
-		milkDiv.setAttribute('aria-label', label);
+		MOD.setTextIfChanged(milkDiv, displayText);
+		MOD.setAttributeIfChanged(milkDiv, 'aria-label', label);
 	},
 	createMainInterfaceEnhancements: function() {
 		var MOD = this;
@@ -4031,12 +4049,12 @@ Game.registerMod("nvda accessibility", {
 				// Label the main row
 				var rowLabel = bld.name + ' building row. Level ' + level + '.';
 				if (minigameUnlocked && minigameName) rowLabel += ' Has ' + minigameName + ' minigame.';
-				rowEl.setAttribute('aria-label', rowLabel);
+				MOD.setAttributeIfChanged(rowEl, 'aria-label', rowLabel);
 				// Find and label clickable elements within the row
 				rowEl.querySelectorAll('div[onclick], .rowSpecial, .rowCanvas').forEach(function(el) {
 					var onclick = el.getAttribute('onclick') || '';
 					if (onclick.includes('levelUp') || onclick.includes('Level')) {
-						el.setAttribute('aria-label', bld.name + ' Level ' + level + '. Click to upgrade for ' + lumpCost + ' sugar lump' + (lumpCost > 1 ? 's' : ''));
+						MOD.setAttributeIfChanged(el, 'aria-label', bld.name + ' Level ' + level + '. Click to upgrade for ' + lumpCost + ' sugar lump' + (lumpCost > 1 ? 's' : ''));
 						el.setAttribute('role', 'button');
 						el.setAttribute('tabindex', '0');
 					} else if (onclick.includes('minigame') || onclick.includes('Minigame')) {
@@ -4050,16 +4068,16 @@ Game.registerMod("nvda accessibility", {
 										 mgContainer.classList.contains('rowMinigame');
 							}
 							if (bld.onMinigame) isOpen = true;
-							el.setAttribute('aria-label', (isOpen ? 'Close ' : 'Open ') + minigameName);
+							MOD.setAttributeIfChanged(el, 'aria-label', (isOpen ? 'Close ' : 'Open ') + minigameName);
 						} else if (hasMinigame) {
-							el.setAttribute('aria-label', minigameName + ' (unlock at level 1)');
+							MOD.setAttributeIfChanged(el, 'aria-label', minigameName + ' (unlock at level 1)');
 						} else {
-							el.setAttribute('aria-label', bld.name + ' (no minigame)');
+							MOD.setAttributeIfChanged(el, 'aria-label', bld.name + ' (no minigame)');
 						}
 						el.setAttribute('role', 'button');
 						el.setAttribute('tabindex', '0');
 					} else if (onclick.includes('Mute')) {
-						el.setAttribute('aria-label', 'Mute ' + bld.name);
+						MOD.setAttributeIfChanged(el, 'aria-label', 'Mute ' + bld.name);
 						el.setAttribute('role', 'button');
 						el.setAttribute('tabindex', '0');
 					}
@@ -4067,7 +4085,7 @@ Game.registerMod("nvda accessibility", {
 				// Also check for .level elements in the row
 				var levelEl = rowEl.querySelector('.level, .objectLevel');
 				if (levelEl) {
-					levelEl.setAttribute('aria-label', bld.name + ' Level ' + level + '. Click to upgrade for ' + lumpCost + ' sugar lump' + (lumpCost > 1 ? 's' : ''));
+					MOD.setAttributeIfChanged(levelEl, 'aria-label', bld.name + ' Level ' + level + '. Click to upgrade for ' + lumpCost + ' sugar lump' + (lumpCost > 1 ? 's' : ''));
 					levelEl.setAttribute('role', 'button');
 					levelEl.setAttribute('tabindex', '0');
 				}
@@ -4075,7 +4093,7 @@ Game.registerMod("nvda accessibility", {
 			// Also label the productLevel button in the right section (this is the main level upgrade button)
 			var productLevelEl = l('productLevel' + bld.id);
 			if (productLevelEl) {
-				productLevelEl.setAttribute('aria-label', bld.name + ' Level ' + level + '. Click to upgrade for ' + lumpCost + ' sugar lump' + (lumpCost > 1 ? 's' : ''));
+				MOD.setAttributeIfChanged(productLevelEl, 'aria-label', bld.name + ' Level ' + level + '. Click to upgrade for ' + lumpCost + ' sugar lump' + (lumpCost > 1 ? 's' : ''));
 				productLevelEl.setAttribute('role', 'button');
 				productLevelEl.setAttribute('tabindex', '0');
 			}
@@ -4084,9 +4102,9 @@ Game.registerMod("nvda accessibility", {
 			if (productMgBtn) {
 				if (minigameUnlocked && minigameName) {
 					var isOpen = bld.onMinigame ? true : false;
-					productMgBtn.setAttribute('aria-label', (isOpen ? 'Close ' : 'Open ') + minigameName);
+					MOD.setAttributeIfChanged(productMgBtn, 'aria-label', (isOpen ? 'Close ' : 'Open ') + minigameName);
 				} else if (hasMinigame) {
-					productMgBtn.setAttribute('aria-label', minigameName + ' (unlock at level 1)');
+					MOD.setAttributeIfChanged(productMgBtn, 'aria-label', minigameName + ' (unlock at level 1)');
 				}
 				productMgBtn.setAttribute('role', 'button');
 				productMgBtn.setAttribute('tabindex', '0');
@@ -4105,7 +4123,7 @@ Game.registerMod("nvda accessibility", {
 						if (bld) {
 							var level = parseInt(bld.level) || 0;
 							var lumpCost = level + 1;
-							el.setAttribute('aria-label', bld.name + ' Level ' + level + '. Click to upgrade for ' + lumpCost + ' sugar lump' + (lumpCost > 1 ? 's' : ''));
+							MOD.setAttributeIfChanged(el, 'aria-label', bld.name + ' Level ' + level + '. Click to upgrade for ' + lumpCost + ' sugar lump' + (lumpCost > 1 ? 's' : ''));
 							el.setAttribute('role', 'button');
 							el.setAttribute('tabindex', '0');
 						}
@@ -4171,8 +4189,9 @@ Game.registerMod("nvda accessibility", {
 			try {
 				cpc = Game.computedMouseCps || Game.mouseCps() || 0;
 			} catch(e) {}
-			cpcDiv.textContent = 'Cookies per click: ' + Beautify(cpc, 1);
-			cpcDiv.setAttribute('aria-label', 'Cookies per click: ' + Beautify(cpc, 1));
+			var cpcText = 'Cookies per click: ' + Beautify(cpc, 1);
+			MOD.setTextIfChanged(cpcDiv, cpcText);
+			MOD.setAttributeIfChanged(cpcDiv, 'aria-label', cpcText);
 		}
 		// Update any mystery number labels
 		MOD.findAndLabelUnknownDisplays();
@@ -4182,6 +4201,7 @@ Game.registerMod("nvda accessibility", {
 		MOD.updateSeasonDisplay();
 	},
 	updateSeasonDisplay: function() {
+		var MOD = this;
 		var seasonDiv = l('a11ySeasonDisplay');
 		if (!seasonDiv) return;
 		var currentSeason = Game.season || '';
@@ -4189,8 +4209,10 @@ Game.registerMod("nvda accessibility", {
 		if (currentSeason !== '' && Game.seasons[currentSeason]) {
 			seasonName = Game.seasons[currentSeason].name;
 		}
-		seasonDiv.textContent = 'Season: ' + seasonName;
-		seasonDiv.setAttribute('aria-label', 'Current season: ' + seasonName);
+		var seasonText = 'Season: ' + seasonName;
+		var seasonLabel = 'Current season: ' + seasonName;
+		MOD.setTextIfChanged(seasonDiv, seasonText);
+		MOD.setAttributeIfChanged(seasonDiv, 'aria-label', seasonLabel);
 	},
 
 	// ============================================
