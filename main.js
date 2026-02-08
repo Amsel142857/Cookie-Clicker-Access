@@ -11,8 +11,8 @@ Game.registerMod("nvda accessibility", {
 		this.wrinklerOverlays = [];
 		this.lastLumpRipe = false;
 		this.lastSeason = Game.season || '';
-		// Shimmer tracking - announce once on appear and once when fading
-		this.announcedShimmers = {}; // Track shimmers we've announced appearing
+		// Shimmer tracking - announce on appear, fading, and faded
+		this.announcedShimmers = {}; // Track shimmers: stores {variant, suppressed}
 		this.fadingShimmers = {}; // Track shimmers we've announced as fading
 		this.shimmerButtons = {}; // Track shimmer buttons by ID
 		// Wrinkler tracking - announce once on spawn
@@ -900,6 +900,11 @@ Game.registerMod("nvda accessibility", {
 				// Restore original Game.Popup
 				Game.Popup = origPopup;
 
+				// Mark as clicked so we don't announce "has faded" for clicked shimmers
+				if (MOD.announcedShimmers[me.id]) {
+					MOD.announcedShimmers[me.id].clicked = true;
+				}
+
 				// Check if this is a storm drop or chain cookie
 				var isStormDrop = me.forceObj && me.forceObj.type === 'cookie storm drop';
 
@@ -932,6 +937,9 @@ Game.registerMod("nvda accessibility", {
 		if (Game.shimmerTypes && Game.shimmerTypes.reindeer) {
 			var origR = Game.shimmerTypes.reindeer.popFunc;
 			Game.shimmerTypes.reindeer.popFunc = function(me) {
+				if (MOD.announcedShimmers[me.id]) {
+					MOD.announcedShimmers[me.id].clicked = true;
+				}
 				var r = origR.call(this, me);
 				MOD.announceUrgent('Reindeer clicked!');
 				return r;
@@ -971,14 +979,14 @@ Game.registerMod("nvda accessibility", {
 	},
 	/**
 	 * Track and announce shimmers - called from updateDynamicLabels
-	 * Announces once when appearing, once when fading (2 seconds before disappearing)
+	 * Announces once when appearing, once when fading, and once when faded
 	 */
 	trackShimmerAnnouncements: function() {
 		var MOD = this;
 		if (!Game.shimmers) return;
 
 		var currentShimmerIds = {};
-		var FADE_WARNING_FRAMES = 150; // 5 seconds at 30fps
+		var FADE_WARNING_FRAMES = 300; // 10 seconds at 30fps
 
 		// Process each active shimmer
 		Game.shimmers.forEach(function(shimmer) {
@@ -994,7 +1002,7 @@ Game.registerMod("nvda accessibility", {
 
 			// Announce appearance (only once per shimmer, unless suppressed)
 			if (!MOD.announcedShimmers[id]) {
-				MOD.announcedShimmers[id] = true;
+				MOD.announcedShimmers[id] = {variant: variant, suppressed: shouldSuppress};
 				if (!shouldSuppress) {
 					MOD.announceUrgent('A ' + variant + ' has appeared!');
 				}
@@ -1012,9 +1020,13 @@ Game.registerMod("nvda accessibility", {
 			}
 		});
 
-		// Clean up tracking for shimmers that no longer exist
+		// Announce faded and clean up tracking for shimmers that no longer exist
 		for (var id in MOD.announcedShimmers) {
 			if (!currentShimmerIds[id]) {
+				var info = MOD.announcedShimmers[id];
+				if (info && !info.suppressed && !info.clicked) {
+					MOD.announceUrgent(info.variant + ' has faded.');
+				}
 				delete MOD.announcedShimmers[id];
 				delete MOD.fadingShimmers[id];
 			}
