@@ -35,6 +35,12 @@ Game.registerMod("nvda accessibility", {
 			}
 			return result;
 		};
+		// Wrap Game.RebuildUpgrades to immediately re-label upgrades after DOM rebuild
+		var origRebuildUpgrades = Game.RebuildUpgrades;
+		Game.RebuildUpgrades = function() {
+			origRebuildUpgrades.apply(this, arguments);
+			setTimeout(function() { MOD.enhanceUpgradeShop(); }, 0);
+		};
 		// Track if we've announced the fix
 		MOD.announcedFix = false;
 		MOD.initRetriesComplete = false;
@@ -1389,6 +1395,26 @@ Game.registerMod("nvda accessibility", {
 		MOD.labelOriginalGardenElements(g);
 		// Note: Garden accessible panel removed - using virtual grid from garden.js instead
 	},
+	labelSingleGardenTile: function(g, x, y) {
+		var tile = l('gardenTile-' + x + '-' + y);
+		if (!tile) return;
+		var t = g.plot[y] && g.plot[y][x];
+		var lbl = 'R' + (y+1) + ', C' + (x+1) + ': ';
+		if (t && t[0] > 0) {
+			var pl = g.plantsById[t[0] - 1];
+			if (pl) {
+				var mature = pl.mature || 100;
+				var pct = Math.floor((t[1] / mature) * 100);
+				lbl += pl.name + ', ' + pct + '% grown';
+				if (t[1] >= mature) lbl += ', READY to harvest';
+			} else {
+				lbl += 'Unknown plant';
+			}
+		} else {
+			lbl += 'Empty';
+		}
+		tile.setAttribute('aria-label', lbl);
+	},
 	labelOriginalGardenElements: function(g) {
 		var MOD = this;
 		if (!g) return;
@@ -1398,22 +1424,7 @@ Game.registerMod("nvda accessibility", {
 			for (var x = 0; x < 6; x++) {
 				var tile = l('gardenTile-' + x + '-' + y);
 				if (!tile) continue;
-				var t = g.plot[y] && g.plot[y][x];
-				var lbl = 'R' + (y+1) + ', C' + (x+1) + ': ';
-				if (t && t[0] > 0) {
-					var pl = g.plantsById[t[0] - 1];
-					if (pl) {
-						var mature = pl.mature || 100;
-						var pct = Math.floor((t[1] / mature) * 100);
-						lbl += pl.name + ', ' + pct + '% grown';
-						if (t[1] >= mature) lbl += ', READY to harvest';
-					} else {
-						lbl += 'Unknown plant';
-					}
-				} else {
-					lbl += 'Empty';
-				}
-				tile.setAttribute('aria-label', lbl);
+				MOD.labelSingleGardenTile(g, x, y);
 				tile.setAttribute('role', 'button');
 				tile.setAttribute('tabindex', '0');
 				if (!tile.getAttribute('data-a11y-kb')) {
@@ -1426,6 +1437,19 @@ Game.registerMod("nvda accessibility", {
 							}
 						});
 					})(tile);
+				}
+				if (!tile.getAttribute('data-a11y-click')) {
+					tile.setAttribute('data-a11y-click', '1');
+					(function(tileX, tileY) {
+						tile.addEventListener('click', function() {
+							setTimeout(function() {
+								if (MOD.gardenReady()) {
+									var gRef = Game.Objects['Farm'].minigame;
+									MOD.labelSingleGardenTile(gRef, tileX, tileY);
+								}
+							}, 50);
+						});
+					})(x, y);
 				}
 			}
 		}
