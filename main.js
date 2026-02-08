@@ -39,6 +39,7 @@ Game.registerMod("nvda accessibility", {
 		MOD.announcedFix = false;
 		MOD.initRetriesComplete = false;
 		MOD.minigameInitDone = {};
+		MOD.highestOwnedBuildingId = -1;
 		setTimeout(function() {
 			MOD.enhanceMainUI();
 			MOD.enhanceUpgradeShop();
@@ -1216,64 +1217,69 @@ Game.registerMod("nvda accessibility", {
 		if (!el || !bld) return;
 		var owned = bld.amount || 0;
 
-		// Determine buy/sell mode and bulk amount
-		var isBuyMode = Game.buyMode === 1;
-		var bulkAmount = Game.buyBulkShortcut ? Game.buyBulkOld : Game.buyBulk;
+		// Skip labeling mystery buildings - filterUnownedBuildings owns their labels
+		var isMystery = bld.amount === 0 && !bld.locked
+			&& (bld.id - (MOD.highestOwnedBuildingId !== undefined ? MOD.highestOwnedBuildingId : -1)) === 2;
 
-		// Calculate the appropriate price based on mode
-		var price, priceStr, actionLabel, quantityLabel;
+		if (!isMystery) {
+			// Determine buy/sell mode and bulk amount
+			var isBuyMode = Game.buyMode === 1;
+			var bulkAmount = Game.buyBulkShortcut ? Game.buyBulkOld : Game.buyBulk;
 
-		if (isBuyMode) {
-			// Buy mode - use getSumPrice for bulk pricing
-			if (bulkAmount === -1) {
-				// Max mode - calculate how many can be afforded
-				var maxCanBuy = 0;
-				if (bld.getBulkPrice) {
-					// Use game's bulk price calculation if available
-					price = bld.bulkPrice || bld.price;
+			// Calculate the appropriate price based on mode
+			var price, priceStr, actionLabel, quantityLabel;
+
+			if (isBuyMode) {
+				// Buy mode - use getSumPrice for bulk pricing
+				if (bulkAmount === -1) {
+					// Max mode - calculate how many can be afforded
+					var maxCanBuy = 0;
+					if (bld.getBulkPrice) {
+						// Use game's bulk price calculation if available
+						price = bld.bulkPrice || bld.price;
+					} else {
+						price = bld.getSumPrice ? bld.getSumPrice(1) : bld.price;
+					}
+					quantityLabel = 'max';
+					actionLabel = 'Buy';
 				} else {
-					price = bld.getSumPrice ? bld.getSumPrice(1) : bld.price;
+					// Fixed amount (1, 10, or 100)
+					price = bld.getSumPrice ? bld.getSumPrice(bulkAmount) : bld.price * bulkAmount;
+					quantityLabel = bulkAmount > 1 ? bulkAmount + ' for' : '';
+					actionLabel = 'Buy';
 				}
-				quantityLabel = 'max';
-				actionLabel = 'Buy';
-			} else {
-				// Fixed amount (1, 10, or 100)
-				price = bld.getSumPrice ? bld.getSumPrice(bulkAmount) : bld.price * bulkAmount;
-				quantityLabel = bulkAmount > 1 ? bulkAmount + ' for' : '';
-				actionLabel = 'Buy';
-			}
-			priceStr = Beautify(Math.round(price));
+				priceStr = Beautify(Math.round(price));
 
-			// Build label for buy mode
-			var lbl = bld.name;
-			if (quantityLabel) {
-				lbl += ', ' + actionLabel + ' ' + quantityLabel + ' ' + priceStr;
+				// Build label for buy mode
+				var lbl = bld.name;
+				if (quantityLabel) {
+					lbl += ', ' + actionLabel + ' ' + quantityLabel + ' ' + priceStr;
+				} else {
+					lbl += ', Cost: ' + priceStr;
+				}
+				lbl += ', ' + owned + ' owned';
+				lbl += Game.cookies >= price ? ', Affordable' : ', Cannot afford';
+				MOD.setAttributeIfChanged(el, 'aria-label', lbl);
 			} else {
-				lbl += ', Cost: ' + priceStr;
-			}
-			lbl += ', ' + owned + ' owned';
-			lbl += Game.cookies >= price ? ', Affordable' : ', Cannot afford';
-			MOD.setAttributeIfChanged(el, 'aria-label', lbl);
-		} else {
-			// Sell mode - calculate sell value
-			if (bulkAmount === -1) {
-				// Sell all
-				price = bld.getReverseSumPrice ? bld.getReverseSumPrice(owned) : Math.floor(bld.price * owned * 0.25);
-				quantityLabel = 'all ' + owned;
-			} else {
-				var sellAmount = Math.min(bulkAmount, owned);
-				price = bld.getReverseSumPrice ? bld.getReverseSumPrice(sellAmount) : Math.floor(bld.price * sellAmount * 0.25);
-				quantityLabel = sellAmount + '';
-			}
-			priceStr = Beautify(Math.round(price));
+				// Sell mode - calculate sell value
+				if (bulkAmount === -1) {
+					// Sell all
+					price = bld.getReverseSumPrice ? bld.getReverseSumPrice(owned) : Math.floor(bld.price * owned * 0.25);
+					quantityLabel = 'all ' + owned;
+				} else {
+					var sellAmount = Math.min(bulkAmount, owned);
+					price = bld.getReverseSumPrice ? bld.getReverseSumPrice(sellAmount) : Math.floor(bld.price * sellAmount * 0.25);
+					quantityLabel = sellAmount + '';
+				}
+				priceStr = Beautify(Math.round(price));
 
-			// Build label for sell mode
-			var lbl = bld.name;
-			lbl += ', Sell ' + quantityLabel + ' for ' + priceStr;
-			lbl += ', ' + owned + ' owned';
-			MOD.setAttributeIfChanged(el, 'aria-label', lbl);
+				// Build label for sell mode
+				var lbl = bld.name;
+				lbl += ', Sell ' + quantityLabel + ' for ' + priceStr;
+				lbl += ', ' + owned + ' owned';
+				MOD.setAttributeIfChanged(el, 'aria-label', lbl);
+			}
 		}
-
 		el.removeAttribute('aria-labelledby');
 		el.setAttribute('role', 'button');
 		el.setAttribute('tabindex', '0');
@@ -1282,8 +1288,17 @@ Game.registerMod("nvda accessibility", {
 		for (var c = 0; c < el.children.length; c++) {
 			el.children[c].setAttribute('aria-hidden', 'true');
 		}
-		// Add info text (not a button) with building stats below
-		MOD.ensureBuildingInfoText(bld);
+		if (!isMystery) {
+			// Add info text (not a button) with building stats below
+			MOD.ensureBuildingInfoText(bld);
+		} else {
+			// Hide info text for mystery buildings so the real name isn't revealed
+			var infoText = l('a11y-building-info-' + bld.id);
+			if (infoText) {
+				infoText.style.display = 'none';
+				infoText.setAttribute('aria-hidden', 'true');
+			}
+		}
 	},
 	enhanceMinigameHeader: function(bld, mgName, mg) {
 		var MOD = this;
@@ -2795,6 +2810,8 @@ Game.registerMod("nvda accessibility", {
 			if (existingText) {
 				existingText.textContent = infoText;
 				existingText.setAttribute('aria-label', infoText);
+				existingText.style.display = '';
+				existingText.removeAttribute('aria-hidden');
 			} else {
 				// Create info text element (not a button - just focusable text)
 				var infoDiv = document.createElement('div');
@@ -3466,6 +3483,7 @@ Game.registerMod("nvda accessibility", {
 			MOD.updateSeasonTracker();
 			MOD.updateLegacyButtonLabel();
 			MOD.updateActiveBuffsPanel();
+			MOD.updateFeaturesPanel();
 			MOD.updateMainInterfaceDisplays();
 		}
 		// Regular updates every 60 ticks (2 seconds)
@@ -3742,10 +3760,20 @@ Game.registerMod("nvda accessibility", {
 		var panel = document.createElement('div');
 		panel.id = 'a11yActiveBuffsPanel';
 		panel.style.cssText = 'background:#1a1a2e;border:2px solid #66a;padding:10px;margin:10px 0;';
+		var featuresHeading = document.createElement('h2');
+		featuresHeading.id = 'a11yFeaturesHeading';
+		featuresHeading.textContent = 'Active Features';
+		featuresHeading.style.cssText = 'color:#aaf;margin:0 0 10px 0;font-size:16px;';
+		panel.appendChild(featuresHeading);
+		var featuresList = document.createElement('div');
+		featuresList.id = 'a11yFeaturesList';
+		featuresList.style.cssText = 'color:#fff;font-size:14px;';
+		featuresList.textContent = 'No active features';
+		panel.appendChild(featuresList);
 		var heading = document.createElement('h2');
 		heading.id = 'a11yBuffsHeading';
 		heading.textContent = 'Active Buffs';
-		heading.style.cssText = 'color:#aaf;margin:0 0 10px 0;font-size:16px;';
+		heading.style.cssText = 'color:#aaf;margin:10px 0 10px 0;font-size:16px;';
 		panel.appendChild(heading);
 		var buffList = document.createElement('div');
 		buffList.id = 'a11yBuffList';
@@ -3787,6 +3815,68 @@ Game.registerMod("nvda accessibility", {
 		}
 	},
 
+	updateFeaturesPanel: function() {
+		var MOD = this;
+		var featuresList = l('a11yFeaturesList');
+		if (!featuresList) return;
+		var items = [];
+		// Dragon level
+		if (Game.dragonLevel > 0) {
+			items.push('Krumblor level: ' + Game.dragonLevel + ' of 25');
+		}
+		// Dragon Aura 1
+		if (Game.dragonLevel >= 5 && Game.dragonAura > 0 && Game.dragonAuras[Game.dragonAura]) {
+			var aura = Game.dragonAuras[Game.dragonAura];
+			var auraDesc = aura.desc ? MOD.stripHtml(aura.desc) : '';
+			items.push('Dragon Aura 1: ' + (aura.dname || aura.name) + (auraDesc ? ', ' + auraDesc : ''));
+		}
+		// Dragon Aura 2
+		if (Game.dragonLevel >= 19 && Game.dragonAura2 > 0 && Game.dragonAuras[Game.dragonAura2]) {
+			var aura2 = Game.dragonAuras[Game.dragonAura2];
+			var aura2Desc = aura2.desc ? MOD.stripHtml(aura2.desc) : '';
+			items.push('Dragon Aura 2: ' + (aura2.dname || aura2.name) + (aura2Desc ? ', ' + aura2Desc : ''));
+		}
+		// Santa level
+		if (Game.santaLevel > 0) {
+			items.push('Santa level: ' + Game.santaLevel + ' of 14');
+		}
+		// Active season
+		if (Game.season !== '' && Game.seasons[Game.season]) {
+			items.push('Season: ' + Game.seasons[Game.season].name);
+		}
+		// Grandmapocalypse
+		if (Game.elderWrath > 0) {
+			var stages = {1: 'Awoken (stage 1)', 2: 'Displeased (stage 2)', 3: 'Angered (stage 3)'};
+			items.push('Grandmapocalypse: ' + (stages[Game.elderWrath] || 'stage ' + Game.elderWrath));
+		}
+		// Elder Pledge
+		if (Game.pledgeT > 0) {
+			var pledgeRemaining = Math.ceil(Game.pledgeT / Game.fps);
+			items.push('Elder Pledge: active, ' + pledgeRemaining + 's remaining');
+		}
+		// Elder Covenant
+		if (Game.Has('Elder Covenant')) {
+			items.push('Elder Covenant: active (CpS reduced 5%)');
+		}
+		// Golden Switch
+		if (Game.Has('Golden switch [on]')) {
+			items.push('Golden Switch: ON (+50% CpS, no golden cookies)');
+		}
+		// Shimmering Veil
+		if (Game.Has('Shimmering veil [on]')) {
+			items.push('Shimmering Veil: ON (+50% CpS)');
+		}
+		if (items.length === 0) {
+			featuresList.innerHTML = '<div tabindex="0">No active features</div>';
+		} else {
+			var html = '';
+			items.forEach(function(item) {
+				html += '<div tabindex="0" style="padding:4px 0;border-bottom:1px solid #444;">' + item + '</div>';
+			});
+			featuresList.innerHTML = html;
+		}
+	},
+
 	// ============================================
 	// MODULE: Building Filter (match game behavior)
 	// ============================================
@@ -3802,6 +3892,7 @@ Game.registerMod("nvda accessibility", {
 				highestOwned = i;
 			}
 		}
+		MOD.highestOwnedBuildingId = highestOwned;
 
 		// Show: owned buildings + next 1 to work toward + 1 mystery
 		for (var i = 0; i < numBuildings; i++) {
@@ -3810,8 +3901,8 @@ Game.registerMod("nvda accessibility", {
 			var productEl = l('product' + bld.id);
 			if (!productEl) continue;
 
-			// Find the info button for this building
-			var infoBtn = l('a11y-info-btn-building-' + bld.id);
+			// Find the info text for this building
+			var infoBtn = l('a11y-building-info-' + bld.id);
 			var levelLabel = l('a11yBuildingLevel' + bld.id);
 
 			if (bld.amount > 0) {
