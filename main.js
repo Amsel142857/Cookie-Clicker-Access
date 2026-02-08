@@ -102,8 +102,8 @@ Game.registerMod("nvda accessibility", {
 				MOD.labelStatsUpgradesAndAchievements();
 			}, 100);
 		});
-		Game.Notify('Accessibility Enhanced', 'Version 11.7 - Bulk pricing, News heading, buff list fixes.', [10, 0], 6);
-		this.announce('NVDA Accessibility mod version 11.7 loaded.');
+		Game.Notify('Accessibility Enhanced', 'Version 13', [10, 0], 6);
+		this.announce('NVDA Accessibility mod version 13 loaded.');
 	},
 	overrideDrawBuildings: function() {
 		var MOD = this;
