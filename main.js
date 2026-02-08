@@ -880,7 +880,18 @@ Game.registerMod("nvda accessibility", {
 		if (Game.shimmerTypes && Game.shimmerTypes.golden) {
 			var orig = Game.shimmerTypes.golden.popFunc;
 			Game.shimmerTypes.golden.popFunc = function(me) {
+				// Temporarily hook Game.Popup to capture the effect text
+				var capturedPopup = '';
+				var origPopup = Game.Popup;
+				Game.Popup = function(text, x, y) {
+					capturedPopup = text;
+					origPopup.call(Game, text, x, y);
+				};
+
 				var r = orig.call(this, me);
+
+				// Restore original Game.Popup
+				Game.Popup = origPopup;
 
 				// Check if this is a storm drop or chain cookie
 				var isStormDrop = me.forceObj && me.forceObj.type === 'cookie storm drop';
@@ -897,8 +908,14 @@ Game.registerMod("nvda accessibility", {
 				}
 
 				var variant = MOD.getShimmerVariantName(me);
-				if (me.lastPopText) {
-					MOD.announceUrgent(variant + ' clicked! ' + MOD.stripHtml(me.lastPopText));
+
+				// Non-buff effects: include the captured popup text in the announcement
+				// Buff effects: just announce "clicked!" — the buff tracker handles the rest
+				var nonBuffEffects = ['multiply cookies', 'ruin cookies', 'blab',
+				                      'free sugar lump', 'chain cookie'];
+				var lastEffect = Game.shimmerTypes.golden.last;
+				if (capturedPopup && nonBuffEffects.indexOf(lastEffect) !== -1) {
+					MOD.announceUrgent(variant + ' clicked! ' + MOD.stripHtml(capturedPopup));
 				} else {
 					MOD.announceUrgent(variant + ' clicked!');
 				}
@@ -1610,7 +1627,6 @@ Game.registerMod("nvda accessibility", {
 			{ id: 'a11yGardenToolsHeading', text: 'Tools', beforeId: 'gardenTools' },
 			{ id: 'a11yGardenSoilHeading', text: 'Soil', beforeId: 'gardenSoil-0' },
 			{ id: 'a11yGardenSeedsHeading', text: 'Seeds', beforeId: 'gardenSeedsUnlocked' },
-			{ id: 'a11yGardenPlotHeading', text: 'Plot', beforeId: 'gardenPlot' },
 		];
 		for (var i = 0; i < headingsToAdd.length; i++) {
 			var h = headingsToAdd[i];
@@ -1625,6 +1641,16 @@ Game.registerMod("nvda accessibility", {
 				}
 			}
 		}
+
+		// Use a region instead of a heading for the plot area
+		var gardenPlot = l('gardenPlot');
+		if (gardenPlot) {
+			MOD.setAttributeIfChanged(gardenPlot, 'role', 'region');
+			MOD.setAttributeIfChanged(gardenPlot, 'aria-label', 'Plots');
+		}
+		// Clean up old heading for users upgrading from previous version
+		var oldPlotHeading = l('a11yGardenPlotHeading');
+		if (oldPlotHeading) oldPlotHeading.remove();
 	},
 	createGardenAccessiblePanel: function(g) {
 		var MOD = this;
@@ -2370,28 +2396,51 @@ Game.registerMod("nvda accessibility", {
 		var firstSpell = document.querySelector('.grimoireSpell');
 		var spellContainer = firstSpell ? firstSpell.parentNode : grimContainer;
 
-		// Add magic label at the very top of the spell container (same container as spells)
+		// Add magic heading at the very top of the spell container (same container as spells)
 		var magicLabelId = 'a11y-grimoire-magic';
 		var existingMagicLabel = l(magicLabelId);
 		if (!existingMagicLabel && spellContainer) {
-			var magicLabel = document.createElement('div');
+			var magicLabel = document.createElement('h3');
 			magicLabel.id = magicLabelId;
 			magicLabel.setAttribute('tabindex', '0');
-			magicLabel.setAttribute('role', 'status');
 			magicLabel.style.cssText = 'display:block;font-size:12px;color:#fff;padding:5px;margin-bottom:10px;';
 			magicLabel.textContent = magicText;
 			spellContainer.insertBefore(magicLabel, spellContainer.firstChild);
+			// Create announcer for spell cast outcomes
+			var announcer = document.createElement('div');
+			announcer.id = 'a11y-grimoire-announcer';
+			announcer.setAttribute('role', 'status');
+			announcer.setAttribute('aria-live', 'assertive');
+			announcer.setAttribute('aria-atomic', 'true');
+			announcer.style.cssText = 'position:absolute;left:-10000px;width:1px;height:1px;overflow:hidden;';
+			spellContainer.insertBefore(announcer, magicLabel.nextSibling);
 		} else if (existingMagicLabel) {
-			existingMagicLabel.textContent = magicText;
+			MOD.setTextIfChanged(existingMagicLabel, magicText);
 		}
 
-		// Enhance spell buttons - order: H3 heading, cost/status, effect, then cast button
+		// Install persistent Game.Popup wrapper for spell outcome announcements
+		if (!MOD._origGamePopup) {
+			MOD._origGamePopup = Game.Popup;
+			Game.Popup = function(text, x, y) {
+				if (MOD.grimoireSpellCasting) {
+					var announcer = l('a11y-grimoire-announcer');
+					if (announcer) {
+						var cleanText = MOD.stripHtml(text || '');
+						// Clear then set after a brief delay so repeated announcements are picked up
+						announcer.textContent = '';
+						setTimeout(function() { announcer.textContent = cleanText; }, 50);
+					}
+				}
+				return MOD._origGamePopup(text, x, y);
+			};
+		}
+
+		// Enhance spell buttons - order: effect, then cast button
 		document.querySelectorAll('.grimoireSpell').forEach(function(b) {
 			var id = b.id.replace('grimoireSpell', ''), sp = grim.spellsById[id];
 			if (sp) {
 				var cost = Math.floor(grim.getSpellCost(sp) * 100) / 100;
 				var canCast = currentMagic >= cost;
-				var statusText = canCast ? 'Can cast' : 'Not enough magic';
 
 				// Ensure spell button's parent is accessible
 				var spellParent = b.parentNode;
@@ -2402,64 +2451,66 @@ Game.registerMod("nvda accessibility", {
 				// Hide original spell icon from screen readers (it has no text)
 				b.setAttribute('aria-hidden', 'true');
 
-				// 1. Add H3 heading before spell
-				var spellHeadingId = 'a11y-spell-heading-' + sp.id;
-				var existingHeading = l(spellHeadingId);
-				if (!existingHeading) {
-					var spellHeading = document.createElement('h3');
-					spellHeading.id = spellHeadingId;
-					spellHeading.textContent = sp.name;
-					spellHeading.setAttribute('tabindex', '0');
-					spellHeading.style.cssText = 'display:block;font-size:12px;color:#fc0;margin:8px 0 2px 0;';
-					b.parentNode.insertBefore(spellHeading, b);
-				}
+				// Remove old H3 headings and cost divs from previous version
+				var oldHeading = l('a11y-spell-heading-' + sp.id);
+				if (oldHeading) oldHeading.remove();
+				var oldCost = l('a11y-spell-cost-' + sp.id);
+				if (oldCost) oldCost.remove();
 
-				// 2. Add cost and status below heading
-				var costId = 'a11y-spell-cost-' + sp.id;
-				var existingCost = l(costId);
-				var costText = 'Cost: ' + cost + ' magic. ' + statusText + '.';
-				if (!existingCost) {
-					var costDiv = document.createElement('div');
-					costDiv.id = costId;
-					costDiv.setAttribute('tabindex', '0');
-					costDiv.style.cssText = 'display:block;font-size:11px;color:#aaa;margin:2px 0;';
-					costDiv.textContent = costText;
-					b.parentNode.insertBefore(costDiv, b);
-				} else {
-					existingCost.textContent = costText;
-				}
-
-				// 3. Add effect description
-				var effectId = 'a11y-spell-effect-' + sp.id;
-				var existingEffect = l(effectId);
-				var effectText = 'Effect: ' + MOD.stripHtml(sp.desc || '');
-				if (!existingEffect) {
-					var effectDiv = document.createElement('div');
-					effectDiv.id = effectId;
-					effectDiv.setAttribute('tabindex', '0');
-					effectDiv.style.cssText = 'display:block;font-size:10px;color:#999;margin:2px 0;';
-					effectDiv.textContent = effectText;
-					b.parentNode.insertBefore(effectDiv, b);
-				}
-
-				// 4. Create cast button (just spell name)
+				// 1. Create cast button with aria-label including cost and status
 				var castBtnId = 'a11y-spell-cast-' + sp.id;
 				var existingCastBtn = l(castBtnId);
 				var btnText = 'Cast ' + sp.name;
+				var ariaLabel = sp.name + ', ' + cost + ' magic, ' + (canCast ? 'can cast' : 'cannot cast');
 				if (!existingCastBtn) {
 					var castBtn = document.createElement('button');
 					castBtn.id = castBtnId;
 					castBtn.type = 'button';
 					castBtn.textContent = btnText;
+					castBtn.setAttribute('aria-label', ariaLabel);
 					castBtn.style.cssText = 'display:block;font-size:11px;color:#fff;background:#333;border:1px solid #666;padding:5px 10px;margin:5px 0 10px 0;cursor:pointer;';
-					castBtn.addEventListener('click', function() {
-						grim.castSpell(sp);
-					});
+					castBtn.addEventListener('click', (function(spell) { return function() {
+						MOD.grimoireSpellCasting = true;
+						var result = grim.castSpell(spell);
+						// If castSpell returns false, not enough magic (no popup fired)
+						if (result === false) {
+							var announcer = l('a11y-grimoire-announcer');
+							if (announcer) {
+								announcer.textContent = '';
+								setTimeout(function() {
+									announcer.textContent = 'Not enough magic to cast ' + spell.name + '.';
+								}, 50);
+							}
+						}
+						// Clear flag after 3s to cover Gambler's Fever Dream delayed cast
+						setTimeout(function() { MOD.grimoireSpellCasting = false; }, 3000);
+					}; })(sp));
 					// Insert after the original spell icon
 					if (b.nextSibling) {
 						b.parentNode.insertBefore(castBtn, b.nextSibling);
 					} else {
 						b.parentNode.appendChild(castBtn);
+					}
+				} else {
+					// Update aria-label on existing button for refresh cycles
+					MOD.setAttributeIfChanged(existingCastBtn, 'aria-label', ariaLabel);
+				}
+
+				// 2. Add effect description after the cast button
+				var effectId = 'a11y-spell-effect-' + sp.id;
+				var existingEffect = l(effectId);
+				var effectText = 'Effect: ' + MOD.stripHtml(sp.desc || '');
+				var castBtnEl = l(castBtnId);
+				if (!existingEffect && castBtnEl) {
+					var effectDiv = document.createElement('div');
+					effectDiv.id = effectId;
+					effectDiv.setAttribute('tabindex', '0');
+					effectDiv.style.cssText = 'display:block;font-size:10px;color:#999;margin:2px 0;';
+					effectDiv.textContent = effectText;
+					if (castBtnEl.nextSibling) {
+						castBtnEl.parentNode.insertBefore(effectDiv, castBtnEl.nextSibling);
+					} else {
+						castBtnEl.parentNode.appendChild(effectDiv);
 					}
 				}
 			}
@@ -3358,6 +3409,24 @@ Game.registerMod("nvda accessibility", {
 			MOD.trackRapidFireEvents();
 			MOD.trackShimmerAnnouncements();
 		}
+		// Enhance notification dismiss buttons
+		var noteDismissBtns = document.querySelectorAll('#notes .close');
+		for (var ni = 0; ni < noteDismissBtns.length; ni++) {
+			var noteBtn = noteDismissBtns[ni];
+			if (!noteBtn.dataset.a11yEnhanced) {
+				noteBtn.setAttribute('role', 'button');
+				noteBtn.setAttribute('tabindex', '0');
+				noteBtn.setAttribute('aria-label', noteBtn.classList.contains('sidenote') ? 'Dismiss all' : 'Dismiss');
+				noteBtn.addEventListener('keydown', function(e) {
+					if (e.key === 'Enter' || e.key === ' ') {
+						e.preventDefault();
+						this.click();
+					}
+				});
+				noteBtn.dataset.a11yEnhanced = '1';
+			}
+		}
+
 		// Detect Grimoire panel open/close and enhance immediately
 		var wizTower = Game.Objects['Wizard tower'];
 		if (wizTower && wizTower.minigame) {
