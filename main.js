@@ -25,8 +25,20 @@ Game.registerMod("nvda accessibility", {
 		MOD.overrideDrawBuildings();
 		// Wrap Game.AssignPermanentSlot to label upgrade picker prompt
 		MOD.wrapPermanentSlotFunctions();
+		// Prevent game's crateTooltip from writing to ariaReader labels (causes VoiceOver oscillation)
+		var origCrateTooltip = Game.crateTooltip;
+		Game.crateTooltip = function(me, context) {
+			var result = origCrateTooltip.apply(this, arguments);
+			if (Game.prefs.screenreader && me && me.type === 'upgrade') {
+				var ariaLabel = l('ariaReader-' + me.type + '-' + me.id);
+				if (ariaLabel) ariaLabel.innerHTML = '';
+			}
+			return result;
+		};
 		// Track if we've announced the fix
 		MOD.announcedFix = false;
+		MOD.initRetriesComplete = false;
+		MOD.minigameInitDone = {};
 		setTimeout(function() {
 			MOD.enhanceMainUI();
 			MOD.enhanceUpgradeShop();
@@ -65,6 +77,8 @@ Game.registerMod("nvda accessibility", {
 		// Also track store refresh flag
 		MOD.lastStoreRefresh = Game.storeToRefresh;
 		Game.registerHook('reset', function(hard) {
+			MOD.minigameInitDone = {};
+			MOD.initRetriesComplete = false;
 			setTimeout(function() {
 				MOD.enhanceMainUI();
 				MOD.enhanceUpgradeShop();
@@ -1221,6 +1235,7 @@ Game.registerMod("nvda accessibility", {
 				lbl += ', Cost: ' + priceStr;
 			}
 			lbl += ', ' + owned + ' owned';
+			lbl += Game.cookies >= price ? ', Affordable' : ', Cannot afford';
 			MOD.setAttributeIfChanged(el, 'aria-label', lbl);
 		} else {
 			// Sell mode - calculate sell value
@@ -2606,21 +2621,24 @@ Game.registerMod("nvda accessibility", {
 				storeHeading.style.cssText = 'position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;';
 				uc.parentNode.insertBefore(storeHeading, uc);
 			}
-			// Label all upgrade crates
-			uc.querySelectorAll('.crate.upgrade, button.crate.upgrade').forEach(function(c) {
-				var id = c.dataset.id;
-				if (id && Game.UpgradesById[id]) {
-					var upg = Game.UpgradesById[id];
-					MOD.labelUpgradeCrate(c, upg, false, upg.pool === 'toggle');
-				}
-			});
 		}
+		// Vault upgrades
 		var vc = l('vaultUpgrades');
 		if (vc) {
 			vc.setAttribute('role', 'region'); vc.setAttribute('aria-label', 'Vaulted');
 			vc.querySelectorAll('.crate.upgrade').forEach(function(c) {
 				var id = c.dataset.id;
-				if (id && Game.UpgradesById[id]) MOD.labelUpgradeCrate(c, Game.UpgradesById[id], true, false);
+				if (id && Game.UpgradesById[id]) {
+					var upg = Game.UpgradesById[id];
+					var n = upg.dname || upg.name;
+					c.removeAttribute('aria-labelledby');
+					c.setAttribute('aria-label', n + ' (Vaulted). Cost: ' + Beautify(Math.round(upg.getPrice())));
+					c.setAttribute('role', 'button');
+					c.setAttribute('tabindex', '0');
+					for (var ci = 0; ci < c.children.length; ci++) {
+						c.children[ci].setAttribute('aria-hidden', 'true');
+					}
+				}
 			});
 		}
 	},
@@ -2779,17 +2797,41 @@ Game.registerMod("nvda accessibility", {
 	populateUpgradeLabel: function(u) {
 		if (!u) return;
 		var MOD = this;
-		var a = l('ariaReader-upgrade-' + u.id);
-		if (a) {
-			var n = u.dname || u.name;
-			var t = n + '. ';
-			if (u.bought) {
-				t += 'Purchased.';
-			} else {
-				t += 'Cost: ' + Beautify(Math.round(u.getPrice())) + '.';
-			}
-			a.innerHTML = t;
+		var n = u.dname || u.name;
+		var t = n + '. ';
+		if (u.bought) {
+			t += 'Purchased.';
+		} else {
+			var price = Math.round(u.getPrice());
+			t += 'Cost: ' + Beautify(price) + '.';
+			t += Game.cookies >= price ? ' Affordable.' : ' Cannot afford.';
 		}
+		// Find the button across upgrade containers and set aria-label directly
+		var containers = [l('upgrades'), l('toggleUpgrades'), l('vaultUpgrades')];
+		for (var ci = 0; ci < containers.length; ci++) {
+			if (!containers[ci]) continue;
+			var btn = containers[ci].querySelector('[data-id="' + u.id + '"]');
+			if (btn) {
+				btn.removeAttribute('aria-labelledby');
+				btn.setAttribute('aria-label', t);
+				btn.setAttribute('role', 'button');
+				btn.setAttribute('tabindex', '0');
+				// Hide child elements from screen reader so only aria-label is read
+				for (var c = 0; c < btn.children.length; c++) {
+					btn.children[c].setAttribute('aria-hidden', 'true');
+				}
+				if (!btn.dataset.a11yEnhanced) {
+					btn.dataset.a11yEnhanced = 'true';
+					btn.addEventListener('keydown', function(e) {
+						if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); this.click(); }
+					});
+				}
+				break;
+			}
+		}
+		// Clear ariaReader label so game's crateTooltip text can't stick
+		var a = l('ariaReader-upgrade-' + u.id);
+		if (a) a.innerHTML = '';
 		// Also add a visible/focusable text element below the upgrade (skip for toggles - they have click menus)
 		if (u.pool !== 'toggle') {
 			MOD.ensureUpgradeInfoText(u);
@@ -2835,23 +2877,7 @@ Game.registerMod("nvda accessibility", {
 			}
 		}
 	},
-	labelUpgradeCrate: function(c, u, v, isToggle) {
-		var MOD = this;
-		if (!c || !u) return;
-		var n = u.dname || u.name;
-		// Build comprehensive label
-		var lbl = n;
-		if (v) lbl += ' (Vaulted)';
-		if (u.bought) lbl += ' (Purchased)';
-		if (!u.bought) lbl += ', Cost: ' + Beautify(Math.round(u.getPrice()));
-		c.setAttribute('aria-label', lbl);
-		c.setAttribute('role', 'button');
-		c.setAttribute('tabindex', '0');
-		if (!c.dataset.a11yEnhanced) {
-			c.dataset.a11yEnhanced = 'true';
-			c.addEventListener('keydown', function(e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); c.click(); } });
-		}
-	},
+	// labelUpgradeCrate (store version) removed — populateUpgradeLabel now handles store upgrade buttons directly
 	getToggleUpgradeEffect: function(u) {
 		var MOD = this;
 		if (!u) return '';
@@ -3286,6 +3312,45 @@ Game.registerMod("nvda accessibility", {
 			}
 		}
 	},
+	retryPendingInits: function() {
+		var MOD = this;
+		if (MOD.initRetriesComplete) return;
+		var allDone = true;
+
+		// Buildings region
+		var region = l('a11yBuildingsRegion');
+		if (!region || !region.children.length) {
+			MOD.enhanceMainUI();
+			allDone = false;
+		}
+
+		// Active buffs panel
+		if (!l('a11yActiveBuffsPanel')) {
+			MOD.createActiveBuffsPanel();
+			allDone = false;
+		}
+
+		// Shimmer panel
+		if (!l('a11yShimmerContainer')) {
+			MOD.createShimmerPanel();
+			allDone = false;
+		}
+
+		// Cookies per click display
+		if (!l('a11yCpcDisplay')) {
+			MOD.createMainInterfaceEnhancements();
+			allDone = false;
+		}
+
+		// Sugar lump
+		var lumps = l('lumps');
+		if (lumps && !lumps.dataset.a11yEnhanced) {
+			MOD.enhanceSugarLump();
+			allDone = false;
+		}
+
+		if (allDone) MOD.initRetriesComplete = true;
+	},
 	updateDynamicLabels: function() {
 		var MOD = this;
 		// Track shimmer appearances every 5 ticks for timely announcements
@@ -3300,6 +3365,25 @@ Game.registerMod("nvda accessibility", {
 				MOD.enhanceGrimoireMinigame();
 			}
 			MOD.lastGrimoireOpen = wizTower.onMinigame;
+		}
+		// Detect minigame loads and enhance immediately on first availability
+		var minigameBuildings = ['Farm', 'Bank', 'Temple', 'Wizard tower'];
+		for (var mi = 0; mi < minigameBuildings.length; mi++) {
+			var mbName = minigameBuildings[mi];
+			var mb = Game.Objects[mbName];
+			if (mb && mb.minigame && !MOD.minigameInitDone[mbName]) {
+				MOD.minigameInitDone[mbName] = true;
+				if (mbName === 'Farm' && MOD.gardenReady()) {
+					MOD.enhanceGardenMinigame();
+				} else if (mbName === 'Temple' && MOD.pantheonReady()) {
+					MOD.enhancePantheonMinigame();
+					MOD.createEnhancedPantheonPanel();
+				} else if (mbName === 'Wizard tower') {
+					MOD.enhanceGrimoireMinigame();
+				} else if (mbName === 'Bank') {
+					MOD.enhanceStockMarketMinigame();
+				}
+			}
 		}
 		// Run building minigame labels every 30 ticks
 		if (Game.T % 30 === 0) {
@@ -3317,6 +3401,8 @@ Game.registerMod("nvda accessibility", {
 		}
 		// Regular updates every 60 ticks (2 seconds)
 		if (Game.T % 60 === 0) {
+			// Retry any failed initializations
+			if (!MOD.initRetriesComplete) MOD.retryPendingInits();
 			MOD.enhanceUpgradeShop();
 			MOD.labelStatsUpgrades();
 			MOD.updateDragonLabels();
@@ -3408,6 +3494,7 @@ Game.registerMod("nvda accessibility", {
 							label += 'Cost: ' + Beautify(Math.round(price)) + ' cookies.';
 						}
 					}
+					label += Game.cookies >= price ? ' Affordable.' : ' Cannot afford.';
 				} else {
 					// Sell mode - show sell value
 					var sellPrice;
@@ -4266,22 +4353,15 @@ Game.registerMod("nvda accessibility", {
 	},
 	labelStatsUpgrades: function() {
 		var MOD = this;
-		// Label upgrades in the store
-		var upgradesDiv = l('upgrades');
-		if (upgradesDiv) {
-			upgradesDiv.querySelectorAll('.crate.upgrade').forEach(function(crate) {
-				MOD.labelUpgradeCrate(crate);
-			});
-		}
-		// Label tech upgrades if visible
+		// Label tech upgrades if visible (store upgrades are handled by populateUpgradeLabel)
 		var techDiv = l('techUpgrades');
 		if (techDiv) {
 			techDiv.querySelectorAll('.crate.upgrade').forEach(function(crate) {
-				MOD.labelUpgradeCrate(crate);
+				MOD.labelStatsCrate(crate);
 			});
 		}
 	},
-	labelUpgradeCrate: function(crate) {
+	labelStatsCrate: function(crate) {
 		var MOD = this;
 		if (!crate) return;
 		// Try to get upgrade from onclick attribute
