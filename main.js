@@ -74,6 +74,7 @@ Game.registerMod("nvda accessibility", {
 			MOD.enhanceSantaUI();
 			MOD.enhanceStatisticsScreen();
 			MOD.enhanceQoLSelectors();
+			MOD.setupMilkSelectorOverride();
 			MOD.enhanceBuildingMinigames();
 			MOD.startBuffTimer();
 			// New modules
@@ -101,6 +102,8 @@ Game.registerMod("nvda accessibility", {
 		Game.registerHook('reset', function(hard) {
 			MOD.minigameInitDone = {};
 			MOD.initRetriesComplete = false;
+			var milkPanel = l('a11yMilkSelectorPanel');
+			if (milkPanel) milkPanel.remove();
 			setTimeout(function() {
 				MOD.enhanceMainUI();
 				MOD.enhanceUpgradeShop();
@@ -302,6 +305,13 @@ Game.registerMod("nvda accessibility", {
 			element.textContent = newText;
 		}
 	},
+	findSelectorCrate: function(upgradeName) {
+		var upg = Game.Upgrades[upgradeName];
+		if (!upg) return null;
+		var container = l('toggleUpgrades');
+		if (!container) return null;
+		return container.querySelector('[data-id="' + upg.id + '"]');
+	},
 	createWrinklerOverlays: function() {
 		var MOD = this;
 		MOD.wrinklerOverlays.forEach(function(o) { if (o && o.parentNode) o.parentNode.removeChild(o); });
@@ -433,7 +443,7 @@ Game.registerMod("nvda accessibility", {
 		// Add heading
 		var heading = document.createElement('h2');
 		heading.id = 'a11yShimmersHeading';
-		heading.textContent = 'Active Shimmers';
+		heading.textContent = 'Shimmers';
 		heading.style.cssText = 'color:#ffd700;margin:0 0 10px 0;font-size:16px;';
 		c.appendChild(heading);
 
@@ -642,8 +652,7 @@ Game.registerMod("nvda accessibility", {
 				if (levelInfo.action) upgradeLbl = MOD.stripHtml(levelInfo.action);
 				if (levelInfo.costStr) upgradeLbl += '. Cost: ' + MOD.stripHtml(levelInfo.costStr());
 			}
-			upgradeBtn.setAttribute('aria-label', upgradeLbl);
-			upgradeBtn.textContent = 'Upgrade';
+			upgradeBtn.textContent = upgradeLbl;
 			upgradeBtn.style.cssText = 'display:block;width:100%;padding:8px;margin:5px 0;background:#336;border:1px solid #66a;color:#fff;cursor:pointer;';
 			upgradeBtn.addEventListener('click', function() {
 				Game.UpgradeDragon();
@@ -679,8 +688,9 @@ Game.registerMod("nvda accessibility", {
 		var slotBtn = document.createElement('button');
 		slotBtn.type = 'button';
 		slotBtn.id = 'a11yAuraSlotBtn' + slotNum;
-		slotBtn.setAttribute('aria-label', 'Aura slot ' + (slotNum + 1) + ': ' + auraName + '. ' + auraDesc + '. Activate to change.');
-		slotBtn.textContent = 'Aura ' + (slotNum + 1) + ': ' + auraName;
+		var slotText = 'Aura slot ' + (slotNum + 1) + ': ' + auraName;
+		if (auraDesc) slotText += '. ' + auraDesc;
+		slotBtn.textContent = slotText;
 		slotBtn.style.cssText = 'display:block;width:100%;padding:8px;margin:3px 0;background:#333;border:1px solid #666;color:#fff;cursor:pointer;text-align:left;';
 		// Placeholder for inline picker
 		var pickerContainer = document.createElement('div');
@@ -747,8 +757,7 @@ Game.registerMod("nvda accessibility", {
 			auraBtn.type = 'button';
 			var prefix = isCurrent ? 'Current aura. ' : '';
 			if (isPickedNow && !isCurrent) prefix = 'Selected. ';
-			auraBtn.setAttribute('aria-label', prefix + name + '. ' + desc);
-			auraBtn.textContent = name + (isCurrent ? ' (current)' : '');
+			auraBtn.textContent = prefix + name + (desc ? '. ' + desc : '');
 			auraBtn.style.cssText = 'display:block;width:100%;padding:6px 8px;margin:2px 0;background:' + (isPickedNow ? '#453' : '#333') + ';border:1px solid ' + (isPickedNow ? '#6a6' : '#555') + ';color:#fff;cursor:pointer;text-align:left;font-size:13px;';
 			auraBtn.dataset.auraId = aId;
 			(function(id, btn, curAura) {
@@ -767,7 +776,7 @@ Game.registerMod("nvda accessibility", {
 						var bDesc = bAura.desc ? MOD.stripHtml(bAura.desc) : '';
 						var bPrefix = bIsCurrent ? 'Current aura. ' : '';
 						if (isSelected && !bIsCurrent) bPrefix = 'Selected. ';
-						allBtns[j].setAttribute('aria-label', bPrefix + bName + '. ' + bDesc);
+						allBtns[j].textContent = bPrefix + bName + (bDesc ? '. ' + bDesc : '');
 					}
 					PlaySound('snd/tick.mp3');
 					MOD.announce(Game.dragonAuras[id].dname || Game.dragonAuras[id].name);
@@ -801,8 +810,7 @@ Game.registerMod("nvda accessibility", {
 		btnRow.appendChild(confirmBtn);
 		var dismissBtn = document.createElement('button');
 		dismissBtn.type = 'button';
-		dismissBtn.textContent = 'Dismiss';
-		dismissBtn.setAttribute('aria-label', 'Dismiss aura selection');
+		dismissBtn.textContent = 'Dismiss aura selection';
 		dismissBtn.style.cssText = 'flex:1;padding:8px;background:#633;border:1px solid #966;color:#fff;cursor:pointer;';
 		dismissBtn.addEventListener('click', function() {
 			container.innerHTML = '';
@@ -2682,43 +2690,126 @@ Game.registerMod("nvda accessibility", {
 		if (!mkt) return;
 		// Enhance the minigame header
 		MOD.enhanceMinigameHeader(Game.Objects['Bank'], 'Stock Market', mkt);
-		// Enhance stock rows
+		// Enhance each stock row
 		document.querySelectorAll('.bankGood').forEach(function(r) {
 			var id = r.id.replace('bankGood-', ''), good = mkt.goodsById[id];
-			if (good) {
-				r.setAttribute('role', 'region');
-				var trend = good.d > 0 ? 'Rising' : (good.d < 0 ? 'Falling' : 'Stable');
-				var lbl = 'Stock: ' + good.name + '. Price: $' + Beautify(good.val, 2) + '. ';
-				lbl += 'Owned: ' + good.stock + ' shares. Trend: ' + trend + '.';
-				r.setAttribute('aria-label', lbl);
+			if (!good) return;
+			var goodName = good.name.replace('%1', Game.bakeryName);
+			// Remove old role/aria-label from the row div
+			r.removeAttribute('role');
+			r.removeAttribute('aria-label');
+			// Insert or update visually-hidden H3 heading
+			var headingId = 'a11y-stock-heading-' + id;
+			var heading = l(headingId);
+			if (!heading) {
+				heading = document.createElement('h3');
+				heading.id = headingId;
+				heading.style.cssText = 'position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;';
+				r.insertBefore(heading, r.firstChild);
 			}
+			var trend = good.d > 0 ? 'Rising' : (good.d < 0 ? 'Falling' : 'Stable');
+			var maxStock = mkt.getGoodMaxStock(good);
+			var headingText = goodName + ', ' + good.stock + ' of ' + maxStock + ' shares, $' + Beautify(mkt.getGoodPrice(good), 2) + ', ' + trend;
+			MOD.setTextIfChanged(heading, headingText);
+			// Aria-hide visual-only .bankSymbol elements
+			r.querySelectorAll('.bankSymbol').forEach(function(sym) {
+				sym.setAttribute('aria-hidden', 'true');
+			});
+			// Enhance view/hide graph toggle
+			var viewHideBtn = l('bankGood-' + id + '-viewHide');
+			if (viewHideBtn) {
+				var viewLabel = good.hidden ? 'Show ' + goodName + ' on graph' : 'Hide ' + goodName + ' on graph';
+				MOD.setAttributeIfChanged(viewHideBtn, 'aria-label', viewLabel);
+				viewHideBtn.setAttribute('role', 'button');
+				viewHideBtn.setAttribute('tabindex', '0');
+				if (!viewHideBtn.dataset.a11yEnhanced) {
+					viewHideBtn.dataset.a11yEnhanced = 'true';
+					viewHideBtn.addEventListener('keydown', function(e) {
+						if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); viewHideBtn.click(); }
+					});
+				}
+			}
+			// Enhance buy/sell buttons by class and ID
+			r.querySelectorAll('.bankButton').forEach(function(btn) {
+				var btnId = btn.id || '';
+				var suffixMatch = btnId.match(/bankGood-\d+_(.*)/);
+				if (!suffixMatch) return;
+				var suffix = suffixMatch[1];
+				var isSell = suffix.charAt(0) === '-';
+				var action, qty;
+				if (isSell) {
+					action = 'Sell';
+					var sellPart = suffix.substring(1);
+					qty = sellPart === 'All' ? 'all' : sellPart;
+				} else {
+					action = 'Buy';
+					qty = suffix === 'Max' ? 'maximum' : suffix;
+				}
+				var label = action + ' ' + qty + ' ' + goodName;
+				MOD.setAttributeIfChanged(btn, 'aria-label', label);
+				btn.setAttribute('role', 'button');
+				btn.setAttribute('tabindex', '0');
+				if (!btn.dataset.a11yEnhanced) {
+					btn.dataset.a11yEnhanced = 'true';
+					btn.addEventListener('keydown', function(e) {
+						if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); btn.click(); }
+					});
+				}
+			});
 		});
-		// Enhance buy/sell buttons
-		document.querySelectorAll('.bankButton').forEach(function(btn) {
-			var txt = btn.textContent || btn.innerText || '';
-			var parent = btn.closest('.bankGood');
-			var goodName = '';
-			if (parent) {
-				var id = parent.id.replace('bankGood-', '');
-				var good = mkt.goodsById[id];
-				if (good) goodName = good.name;
+		// Enhance office upgrade button
+		var officeUpgradeBtn = l('bankOfficeUpgrade');
+		if (officeUpgradeBtn) {
+			var office = mkt.offices[mkt.officeLevel];
+			if (office && office.cost) {
+				var upgradeLabel = 'Upgrade office from ' + office.name + ', costs ' + office.cost[0] + ' cursors, requires level ' + office.cost[1] + ' cursors';
+				MOD.setAttributeIfChanged(officeUpgradeBtn, 'aria-label', upgradeLabel);
+			} else if (office) {
+				MOD.setAttributeIfChanged(officeUpgradeBtn, 'aria-label', office.name + ', fully upgraded');
 			}
-			if (txt.includes('Buy')) {
-				btn.setAttribute('aria-label', 'Buy ' + goodName + ' stock button');
-			} else if (txt.includes('Sell')) {
-				btn.setAttribute('aria-label', 'Sell ' + goodName + ' stock button');
-			} else if (txt.includes('Max')) {
-				btn.setAttribute('aria-label', 'Buy maximum ' + goodName + ' stock button');
-			}
-			btn.setAttribute('role', 'button');
-			btn.setAttribute('tabindex', '0');
-			if (!btn.dataset.a11yEnhanced) {
-				btn.dataset.a11yEnhanced = 'true';
-				btn.addEventListener('keydown', function(e) {
-					if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); btn.click(); }
+			officeUpgradeBtn.setAttribute('role', 'button');
+			officeUpgradeBtn.setAttribute('tabindex', '0');
+			if (!officeUpgradeBtn.dataset.a11yEnhanced) {
+				officeUpgradeBtn.dataset.a11yEnhanced = 'true';
+				officeUpgradeBtn.addEventListener('keydown', function(e) {
+					if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); officeUpgradeBtn.click(); }
 				});
 			}
-		});
+		}
+		// Enhance hire broker button
+		var hireBrokerBtn = l('bankBrokersBuy');
+		if (hireBrokerBtn) {
+			var brokerLabel = 'Hire broker, ' + mkt.brokers + ' of ' + mkt.getMaxBrokers() + ' brokers, overhead ' + Beautify(20 * Math.pow(0.95, mkt.brokers), 2) + '%';
+			MOD.setAttributeIfChanged(hireBrokerBtn, 'aria-label', brokerLabel);
+			hireBrokerBtn.setAttribute('role', 'button');
+			hireBrokerBtn.setAttribute('tabindex', '0');
+			if (!hireBrokerBtn.dataset.a11yEnhanced) {
+				hireBrokerBtn.dataset.a11yEnhanced = 'true';
+				hireBrokerBtn.addEventListener('keydown', function(e) {
+					if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); hireBrokerBtn.click(); }
+				});
+			}
+		}
+		// Enhance loan buttons
+		for (var loanId = 1; loanId <= 3; loanId++) {
+			var loanBtn = l('bankLoan' + loanId);
+			if (loanBtn && loanBtn.style.display !== 'none') {
+				var loanType = mkt.loanTypes[loanId - 1];
+				var isActive = Game.hasBuff('Loan ' + loanId) || Game.hasBuff('Loan ' + loanId + ' (interest)');
+				var loanLabel = isActive ? loanType[0] + ', active' : 'Take out ' + loanType[0];
+				MOD.setAttributeIfChanged(loanBtn, 'aria-label', loanLabel);
+				loanBtn.setAttribute('role', 'button');
+				loanBtn.setAttribute('tabindex', '0');
+				if (!loanBtn.dataset.a11yEnhanced) {
+					loanBtn.dataset.a11yEnhanced = 'true';
+					(function(btn) {
+						btn.addEventListener('keydown', function(e) {
+							if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); btn.click(); }
+						});
+					})(loanBtn);
+				}
+			}
+		}
 	},
 	enhanceMainUI: function() {
 		var MOD = this;
@@ -3628,7 +3719,6 @@ Game.registerMod("nvda accessibility", {
 			MOD.updateAchievementTracker();
 			MOD.updateSeasonTracker();
 			MOD.updateLegacyButtonLabel();
-			MOD.updateActiveBuffsPanel();
 			MOD.updateFeaturesPanel();
 			MOD.updateMainInterfaceDisplays();
 		}
@@ -3747,25 +3837,23 @@ Game.registerMod("nvda accessibility", {
 	},
 	enhanceQoLSelectors: function() {
 		var MOD = this;
-		// Check if milk selector is unlocked (requires "Milk selector" heavenly upgrade)
-		var milkUnlocked = Game.Has('Milk selector');
-		var milkBox = l('milkBox');
-		if (milkBox) {
+		// Milk selector button in sectionLeft (below milk display)
+		var milkUpg = Game.Upgrades['Milk selector'];
+		var milkUnlocked = milkUpg && milkUpg.unlocked;
+		var milkBtn = l('a11yMilkSelectorButton');
+		if (milkBtn) {
 			if (milkUnlocked) {
-				milkBox.setAttribute('role', 'button');
-				milkBox.setAttribute('tabindex', '0');
-				milkBox.removeAttribute('aria-hidden');
+				milkBtn.style.display = '';
 				MOD.updateMilkLabel();
-				if (!milkBox.dataset.a11yEnhanced) {
-					milkBox.dataset.a11yEnhanced = 'true';
-					milkBox.addEventListener('keydown', function(e) {
-						if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); milkBox.click(); }
-					});
-				}
 			} else {
-				milkBox.setAttribute('tabindex', '-1');
-				milkBox.setAttribute('aria-hidden', 'true');
+				milkBtn.style.display = 'none';
 			}
+		}
+		// Hide the store crate since we have a dedicated button below the milk display
+		var milkCrate = MOD.findSelectorCrate('Milk selector');
+		if (milkCrate) {
+			milkCrate.setAttribute('tabindex', '-1');
+			milkCrate.setAttribute('aria-hidden', 'true');
 		}
 		// Check if background selector is unlocked (requires "Background selector" heavenly upgrade)
 		var bgUnlocked = Game.Has('Background selector');
@@ -3841,16 +3929,143 @@ Game.registerMod("nvda accessibility", {
 		});
 	},
 	updateMilkLabel: function() {
-		var milkBox = l('milkBox');
-		if (!milkBox) return;
-		if (!Game.Has('Milk selector')) return;
+		var milkUpg = Game.Upgrades['Milk selector'];
+		if (!milkUpg || !milkUpg.unlocked) return;
 		var milkName = 'Automatic';
-		if (Game.milkType !== undefined && Game.milkType > 0 && Game.Milks && Game.Milks[Game.milkType]) {
-			milkName = Game.Milks[Game.milkType].name || 'Milk ' + Game.milkType;
+		if (Game.milkType !== undefined && Game.milkType > 0 && Game.AllMilks && Game.AllMilks[Game.milkType]) {
+			milkName = Game.AllMilks[Game.milkType].name || 'Milk ' + Game.milkType;
 		} else if (Game.milkType === 0) {
 			milkName = 'Automatic (based on achievements)';
 		}
-		milkBox.setAttribute('aria-label', 'Milk selector. Current: ' + milkName + '. Click to change milk appearance.');
+		// Update the main button in sectionLeft
+		var milkBtn = l('a11yMilkSelectorButton');
+		if (milkBtn) {
+			this.setTextIfChanged(milkBtn, 'Milk selector: ' + milkName);
+			milkBtn.removeAttribute('aria-label');
+		}
+	},
+	setupMilkSelectorOverride: function() {
+		var MOD = this;
+		var milkUpg = Game.Upgrades['Milk selector'];
+		if (!milkUpg) return;
+		var origBuy = Game.Upgrade.prototype.buy;
+		milkUpg.buy = function(bypass) {
+			var wasOpen = (Game.choiceSelectorOn === milkUpg.id);
+			var panelExists = !!l('a11yMilkSelectorPanel');
+			if (wasOpen || panelExists) {
+				// Closing the selector
+				origBuy.call(this, bypass);
+				var panel = l('a11yMilkSelectorPanel');
+				if (panel) panel.remove();
+			} else {
+				// Opening the selector
+				origBuy.call(this, bypass);
+				var toggleBox = l('toggleBox');
+				if (toggleBox && toggleBox.style.display === 'block') {
+					toggleBox.style.display = 'none';
+					toggleBox.innerHTML = '';
+					MOD.createMilkSelectorPanel(milkUpg);
+				}
+			}
+		};
+	},
+	createMilkSelectorPanel: function(upgrade) {
+		var MOD = this;
+		var oldPanel = l('a11yMilkSelectorPanel');
+		if (oldPanel) oldPanel.remove();
+		// Get choices from the upgrade's choicesFunction
+		var choices = upgrade.choicesFunction();
+		if (!choices || !choices.length) return;
+		var selectedId = Game.milkType || 0;
+		// Assign IDs and sort like the game does
+		for (var i = 0; i < choices.length; i++) {
+			if (choices[i]) {
+				choices[i].id = i;
+				choices[i].order = choices[i].order || 0;
+			}
+		}
+		choices.sort(function(a, b) {
+			if (!a) return 1;
+			if (!b) return -1;
+			if (a.order > b.order) return 1;
+			if (a.order < b.order) return -1;
+			return 0;
+		});
+		// Create panel
+		var panel = document.createElement('div');
+		panel.id = 'a11yMilkSelectorPanel';
+		panel.style.cssText = 'background:#1a1a2e;border:2px solid #c90;padding:10px;margin:10px 0;';
+		// Heading
+		var heading = document.createElement('h3');
+		heading.style.cssText = 'color:#fc0;margin:0 0 10px 0;font-size:14px;';
+		heading.textContent = 'Milk selector';
+		heading.setAttribute('tabindex', '-1');
+		panel.appendChild(heading);
+		// Close button
+		var closeBtn = document.createElement('button');
+		closeBtn.type = 'button';
+		closeBtn.textContent = 'Close';
+		closeBtn.setAttribute('aria-label', 'Close milk selector');
+		closeBtn.style.cssText = 'display:block;width:100%;padding:8px;margin:5px 0;background:#633;border:1px solid #a66;color:#fff;cursor:pointer;';
+		closeBtn.addEventListener('click', function() {
+			panel.remove();
+			Game.choiceSelectorOn = -1;
+			PlaySound('snd/tickOff.mp3');
+		});
+		panel.appendChild(closeBtn);
+		// Milk choice buttons
+		for (var i = 0; i < choices.length; i++) {
+			if (!choices[i]) continue;
+			var choice = choices[i];
+			var id = choice.id;
+			var isSelected = (id == selectedId);
+			if (choice.div) {
+				var divider = document.createElement('hr');
+				divider.style.cssText = 'border:1px solid #444;margin:5px 0;';
+				panel.appendChild(divider);
+			}
+			var btn = document.createElement('button');
+			btn.type = 'button';
+			btn.textContent = choice.name;
+			btn.dataset.milkId = id;
+			btn.dataset.milkName = choice.name;
+			btn.setAttribute('aria-label', choice.name + (isSelected ? ', currently selected' : ''));
+			btn.style.cssText = 'display:block;width:100%;padding:8px;margin:2px 0;background:' +
+				(isSelected ? '#363' : '#336') + ';border:1px solid ' +
+				(isSelected ? '#6a6' : '#66a') + ';color:#fff;cursor:pointer;font-size:13px;';
+			(function(choiceId, choiceName) {
+				btn.addEventListener('click', function() {
+					upgrade.choicesPick(choiceId);
+					MOD.announce('Milk changed to ' + choiceName);
+					PlaySound('snd/tick.mp3');
+					// Update all milk buttons to reflect new selection
+					panel.querySelectorAll('button[data-milk-id]').forEach(function(b) {
+						var bId = parseInt(b.dataset.milkId);
+						var bSel = (bId === choiceId);
+						b.setAttribute('aria-label', b.dataset.milkName + (bSel ? ', currently selected' : ''));
+						b.style.background = bSel ? '#363' : '#336';
+						b.style.borderColor = bSel ? '#6a6' : '#66a';
+					});
+					MOD.updateMilkLabel();
+				});
+			})(id, choice.name);
+			panel.appendChild(btn);
+		}
+		// Insert after the milk selector button in sectionLeft
+		var milkBtn = l('a11yMilkSelectorButton');
+		if (milkBtn) {
+			milkBtn.parentNode.insertBefore(panel, milkBtn.nextSibling);
+		} else {
+			// Fallback: insert into sectionLeft before sectionLeftExtra
+			var sectionLeft = l('sectionLeft');
+			var sectionLeftExtra = l('sectionLeftExtra');
+			if (sectionLeft && sectionLeftExtra) {
+				sectionLeft.insertBefore(panel, sectionLeftExtra);
+			} else if (sectionLeft) {
+				sectionLeft.appendChild(panel);
+			}
+		}
+		heading.focus();
 	},
 	updateBackgroundLabel: function() {
 		var bgBox = l('backgroundBox');
@@ -3908,24 +4123,14 @@ Game.registerMod("nvda accessibility", {
 		panel.style.cssText = 'background:#1a1a2e;border:2px solid #66a;padding:10px;margin:10px 0;';
 		var featuresHeading = document.createElement('h2');
 		featuresHeading.id = 'a11yFeaturesHeading';
-		featuresHeading.textContent = 'Active Features';
+		featuresHeading.textContent = 'Status and Effects';
 		featuresHeading.style.cssText = 'color:#aaf;margin:0 0 10px 0;font-size:16px;';
 		panel.appendChild(featuresHeading);
 		var featuresList = document.createElement('div');
 		featuresList.id = 'a11yFeaturesList';
 		featuresList.style.cssText = 'color:#fff;font-size:14px;';
-		featuresList.textContent = 'No active features';
+		featuresList.textContent = 'No active status effects';
 		panel.appendChild(featuresList);
-		var heading = document.createElement('h2');
-		heading.id = 'a11yBuffsHeading';
-		heading.textContent = 'Active Buffs';
-		heading.style.cssText = 'color:#aaf;margin:10px 0 10px 0;font-size:16px;';
-		panel.appendChild(heading);
-		var buffList = document.createElement('div');
-		buffList.id = 'a11yBuffList';
-		buffList.style.cssText = 'color:#fff;font-size:14px;';
-		buffList.textContent = 'No active buffs';
-		panel.appendChild(buffList);
 		// Insert after Wrinklers panel if exists, otherwise after products
 		var wrinklerPanel = l('wrinklerOverlayContainer');
 		if (wrinklerPanel && wrinklerPanel.parentNode) {
@@ -3934,33 +4139,6 @@ Game.registerMod("nvda accessibility", {
 			products.parentNode.insertBefore(panel, products.nextSibling);
 		}
 	},
-	updateActiveBuffsPanel: function() {
-		var MOD = this;
-		var buffList = l('a11yBuffList');
-		if (!buffList || !Game.buffs) return;
-		var buffs = [];
-		for (var name in Game.buffs) {
-			var b = Game.buffs[name];
-			if (b && b.time > 0) {
-				var remaining = Math.ceil(b.time / Game.fps);
-				var desc = b.desc ? MOD.stripHtml(b.desc) : '';
-				buffs.push({ name: name, time: remaining, desc: desc });
-			}
-		}
-		if (buffs.length === 0) {
-			buffList.innerHTML = '<div tabindex="0">No active buffs</div>';
-		} else {
-			var html = '';
-			buffs.forEach(function(buff) {
-				html += '<div tabindex="0" style="padding:4px 0;border-bottom:1px solid #444;">';
-				html += '<strong>' + buff.name + '</strong>: ' + buff.time + 's remaining';
-				if (buff.desc) html += '<br><span style="color:#aaa;font-size:12px;">' + buff.desc + '</span>';
-				html += '</div>';
-			});
-			buffList.innerHTML = html;
-		}
-	},
-
 	updateFeaturesPanel: function() {
 		var MOD = this;
 		var featuresList = l('a11yFeaturesList');
@@ -4012,8 +4190,21 @@ Game.registerMod("nvda accessibility", {
 		if (Game.Has('Shimmering veil [on]')) {
 			items.push('Shimmering Veil: ON (+50% CpS)');
 		}
+		// Active buffs (timed effects like Frenzy, Click Frenzy, etc.)
+		if (Game.buffs) {
+			for (var name in Game.buffs) {
+				var b = Game.buffs[name];
+				if (b && b.time > 0) {
+					var remaining = Math.ceil(b.time / Game.fps);
+					var desc = b.desc ? MOD.stripHtml(b.desc) : '';
+					var buffText = '<strong>' + name + '</strong>: ' + remaining + 's remaining';
+					if (desc) buffText += '<br><span style="color:#aaa;font-size:12px;">' + desc + '</span>';
+					items.push(buffText);
+				}
+			}
+		}
 		if (items.length === 0) {
-			featuresList.innerHTML = '<div tabindex="0">No active features</div>';
+			featuresList.innerHTML = '<div tabindex="0">No active status effects</div>';
 		} else {
 			var html = '';
 			items.forEach(function(item) {
@@ -4284,6 +4475,7 @@ Game.registerMod("nvda accessibility", {
 		var milkRank = Math.floor(milkProgress);
 		var achievementsOwned = Game.AchievementsOwned || 0;
 		var achievementsToNext = (milkRank + 1) * 25 - achievementsOwned;
+		var maxRank = Game.Milks ? Game.Milks.length : 35;
 
 		// Get current milk name from Game.Milks array
 		var milkName = 'Plain milk';
@@ -4294,6 +4486,9 @@ Game.registerMod("nvda accessibility", {
 		// Use game's romanize function for rank display
 		var romanRank = typeof romanize === 'function' ? romanize(milkRank + 1) : (milkRank + 1);
 
+		// Get kitten multiplier (same as shown in stats screen)
+		var kittenMult = Game.cookiesMultByType && Game.cookiesMultByType['kittens'] ? Game.cookiesMultByType['kittens'] : 0;
+
 		return {
 			percent: milkPercent,
 			rank: milkRank + 1,
@@ -4301,7 +4496,8 @@ Game.registerMod("nvda accessibility", {
 			milkName: milkName,
 			achievements: achievementsOwned,
 			achievementsToNext: Math.max(0, achievementsToNext),
-			maxRank: Game.Milks ? Game.Milks.length : 35
+			maxRank: maxRank,
+			kittenMult: kittenMult
 		};
 	},
 	updateMilkDisplay: function() {
@@ -4311,22 +4507,20 @@ Game.registerMod("nvda accessibility", {
 
 		var info = this.getMilkInfo();
 
-		// Build detailed aria-label for screen readers
-		var label = 'Milk: ' + info.milkName + '. ';
-		label += 'Rank ' + info.romanRank + ' (' + info.rank + ' of ' + info.maxRank + '). ';
-		label += info.percent + '% progress. ';
-		label += info.achievements + ' achievements. ';
+		// All info in text content so NVDA reads it in browse mode
+		var text = 'Milk: ' + info.milkName + ', rank ' + info.rank + ' of ' + info.maxRank;
 		if (info.achievementsToNext > 0 && info.rank < info.maxRank) {
-			label += info.achievementsToNext + ' more for next rank.';
+			text += ', ' + info.achievementsToNext + ' achievements until next rank';
 		} else if (info.rank >= info.maxRank) {
-			label += 'Maximum rank achieved!';
+			text += ', all milk flavors unlocked';
+		}
+		text += '. ' + info.achievements + ' total achievements. ';
+		if (info.kittenMult > 1) {
+			text += 'Kitten multiplier: ' + Beautify(info.kittenMult * 100) + '%.';
 		}
 
-		// Shorter visible text
-		var displayText = 'Milk: ' + info.milkName + ' (Rank ' + info.romanRank + ', ' + info.percent + '%)';
-
-		MOD.setTextIfChanged(milkDiv, displayText);
-		MOD.setAttributeIfChanged(milkDiv, 'aria-label', label);
+		MOD.setTextIfChanged(milkDiv, text);
+		milkDiv.removeAttribute('aria-label');
 	},
 	createMainInterfaceEnhancements: function() {
 		var MOD = this;
@@ -4352,16 +4546,39 @@ Game.registerMod("nvda accessibility", {
 		milkDiv.setAttribute('aria-label', 'Milk progress: Loading...');
 		milkDiv.style.cssText = 'background:#1a1a1a;color:#fff;padding:8px;margin:5px;text-align:center;border:1px solid #444;font-size:12px;';
 		cpcDiv.parentNode.insertBefore(milkDiv, cpcDiv.nextSibling);
-		// Create Season display
-		var oldSeason = l('a11ySeasonDisplay');
-		if (oldSeason) oldSeason.remove();
-		var seasonDiv = document.createElement('div');
-		seasonDiv.id = 'a11ySeasonDisplay';
-		seasonDiv.setAttribute('tabindex', '0');
-		seasonDiv.textContent = 'Season: None';
-		seasonDiv.setAttribute('aria-label', 'Current season: None');
-		seasonDiv.style.cssText = 'background:#1a1a1a;color:#fff;padding:8px;margin:5px;text-align:center;border:1px solid #444;font-size:12px;';
-		milkDiv.parentNode.insertBefore(seasonDiv, milkDiv.nextSibling);
+		// Create Milk selector button (in sectionLeft, below milk display, above dragon button)
+		var oldMilkBtn = l('a11yMilkSelectorButton');
+		if (oldMilkBtn) oldMilkBtn.remove();
+		var milkBtn = document.createElement('button');
+		milkBtn.type = 'button';
+		milkBtn.id = 'a11yMilkSelectorButton';
+		milkBtn.setAttribute('role', 'button');
+		milkBtn.setAttribute('tabindex', '0');
+		milkBtn.style.cssText = 'display:none;width:calc(100% - 10px);padding:8px;margin:5px;background:#336;border:1px solid #66a;color:#fff;cursor:pointer;font-size:12px;text-align:center;position:relative;z-index:50;';
+		milkBtn.addEventListener('click', function() {
+			var milkUpg = Game.Upgrades['Milk selector'];
+			if (milkUpg) milkUpg.buy();
+		});
+		// Insert into sectionLeft directly (not inside cookieAnchor which is absolutely positioned)
+		var sectionLeft = l('sectionLeft');
+		if (sectionLeft) {
+			// Insert before sectionLeftExtra (which is after cookieAnchor)
+			var sectionLeftExtra = l('sectionLeftExtra');
+			if (sectionLeftExtra) {
+				sectionLeft.insertBefore(milkBtn, sectionLeftExtra);
+			} else {
+				sectionLeft.appendChild(milkBtn);
+			}
+		}
+		// Set initial label and visibility
+		var milkSelectorUpg = Game.Upgrades['Milk selector'];
+		if (milkSelectorUpg && milkSelectorUpg.unlocked) {
+			milkBtn.style.display = '';
+			MOD.updateMilkLabel();
+		} else {
+			milkBtn.textContent = 'Milk selector';
+			milkBtn.setAttribute('aria-label', 'Milk selector');
+		}
 		// Label mystery elements in the left column
 		MOD.labelMysteryElements();
 	},
@@ -4631,22 +4848,6 @@ Game.registerMod("nvda accessibility", {
 		MOD.findAndLabelUnknownDisplays();
 		// Update Milk display
 		MOD.updateMilkDisplay();
-		// Update Season display
-		MOD.updateSeasonDisplay();
-	},
-	updateSeasonDisplay: function() {
-		var MOD = this;
-		var seasonDiv = l('a11ySeasonDisplay');
-		if (!seasonDiv) return;
-		var currentSeason = Game.season || '';
-		var seasonName = 'None';
-		if (currentSeason !== '' && Game.seasons[currentSeason]) {
-			seasonName = Game.seasons[currentSeason].name;
-		}
-		var seasonText = 'Season: ' + seasonName;
-		var seasonLabel = 'Current season: ' + seasonName;
-		MOD.setTextIfChanged(seasonDiv, seasonText);
-		MOD.setAttributeIfChanged(seasonDiv, 'aria-label', seasonLabel);
 	},
 
 	// ============================================
