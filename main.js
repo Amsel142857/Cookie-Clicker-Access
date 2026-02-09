@@ -41,8 +41,23 @@ Game.registerMod("nvda accessibility", {
 			origRebuildUpgrades.apply(this, arguments);
 			setTimeout(function() { MOD.enhanceUpgradeShop(); }, 0);
 		};
-		// Track if we've announced the fix
-		MOD.announcedFix = false;
+		// Wrap Game.ToggleSpecialMenu to create/remove accessible panels
+		var origToggleSpecialMenu = Game.ToggleSpecialMenu;
+		Game.ToggleSpecialMenu = function(on) {
+			origToggleSpecialMenu.apply(this, arguments);
+			if (!on) {
+				// Restore popup visibility to screen readers when closing
+				var popup = l('specialPopup');
+				if (popup) popup.removeAttribute('aria-hidden');
+			}
+			setTimeout(function() {
+				MOD.enhanceDragonUI();
+				MOD.enhanceSantaUI();
+			}, 50);
+		};
+		// Track which aura slot is being edited for inline picker
+		MOD.editingAuraSlot = -1;
+		MOD.selectedAuraForSlot = -1;
 		MOD.initRetriesComplete = false;
 		MOD.minigameInitDone = {};
 		MOD.highestOwnedBuildingId = -1;
@@ -154,76 +169,87 @@ Game.registerMod("nvda accessibility", {
 	},
 	labelSpecialTabs: function() {
 		var MOD = this;
-		// Label Special Tabs (Dragon, Santa, etc.) - these sit between Sugar Lumps and Store
-		if (Game.SpecialTabs) {
-			for (var i = 0; i < Game.SpecialTabs.length; i++) {
-				var tabName = Game.SpecialTabs[i];
-				var tabEl = l('specialTab' + tabName) || l(tabName + 'Tab') || l(tabName);
-				if (!tabEl) continue;
-				var label = '';
-				if (tabName === 'dragon' || tabName === 'Dragon') {
-					label = 'Krumblor the Dragon';
-				} else if (tabName === 'santa' || tabName === 'Santa') {
-					label = "Santa's Progress";
-				} else {
-					label = tabName + ' tab';
-				}
-				MOD.setAttributeIfChanged(tabEl, 'aria-label', label);
-				tabEl.setAttribute('role', 'button');
-				tabEl.setAttribute('tabindex', '0');
+		// Special tabs (Dragon, Santa) are drawn on canvas with no HTML representation.
+		// Create accessible HTML buttons overlaying the canvas area in sectionLeft.
+		if (!Game.specialTabs || Game.specialTabs.length === 0) {
+			// No special tabs available, remove any existing buttons
+			var existing = l('a11ySpecialTabButtons');
+			if (existing) existing.style.display = 'none';
+			return;
+		}
+		// Create or find the container
+		var container = l('a11ySpecialTabButtons');
+		if (!container) {
+			container = document.createElement('div');
+			container.id = 'a11ySpecialTabButtons';
+			container.style.cssText = 'position:absolute;left:0;bottom:24px;z-index:100;pointer-events:none;';
+			var sectionLeft = l('sectionLeft');
+			if (!sectionLeft) return;
+			sectionLeft.appendChild(container);
+		}
+		container.style.display = '';
+		// Build the set of tabs that should exist
+		var tabNames = {};
+		for (var i = 0; i < Game.specialTabs.length; i++) {
+			tabNames[Game.specialTabs[i]] = true;
+		}
+		// Remove buttons for tabs that no longer exist
+		var existingBtns = container.querySelectorAll('[data-special-tab]');
+		for (var i = 0; i < existingBtns.length; i++) {
+			if (!tabNames[existingBtns[i].dataset.specialTab]) {
+				existingBtns[i].remove();
 			}
 		}
-		// Also check for dragon/santa buttons directly in the DOM
-		var dragonBtn = l('specialTab0') || document.querySelector('[onclick*="dragon"], [onclick*="Dragon"], .dragonButton');
-		if (dragonBtn) {
-			MOD.setAttributeIfChanged(dragonBtn, 'aria-label', 'Krumblor the Dragon');
-			dragonBtn.setAttribute('role', 'button');
-			dragonBtn.setAttribute('tabindex', '0');
-		}
-		var santaBtn = l('specialTab1') || document.querySelector('[onclick*="santa"], [onclick*="Santa"], .santaButton');
-		if (santaBtn) {
-			MOD.setAttributeIfChanged(santaBtn, 'aria-label', "Santa's Progress");
-			santaBtn.setAttribute('role', 'button');
-			santaBtn.setAttribute('tabindex', '0');
-		}
-		// Label any other special tab buttons in the special section
-		var specialSection = l('specialPopup') || l('specials') || document.querySelector('.specialSection, #specials');
-		if (specialSection) {
-			specialSection.querySelectorAll('[onclick]').forEach(function(btn) {
-				if (!btn.getAttribute('aria-label')) {
-					var onclickStr = btn.getAttribute('onclick') || '';
-					if (onclickStr.includes('dragon') || onclickStr.includes('Dragon')) {
-						MOD.setAttributeIfChanged(btn, 'aria-label', 'Krumblor the Dragon');
-					} else if (onclickStr.includes('santa') || onclickStr.includes('Santa')) {
-						MOD.setAttributeIfChanged(btn, 'aria-label', "Santa's Progress");
-					} else if (onclickStr.includes('season') || onclickStr.includes('Season')) {
-						MOD.setAttributeIfChanged(btn, 'aria-label', 'Season Switcher');
-					}
-					btn.setAttribute('role', 'button');
-					btn.setAttribute('tabindex', '0');
-				}
-			});
-		}
-		// Find special tabs in the row between sugar lumps and store
-		document.querySelectorAll('.row.specialTabButton, .specialTabButton, [id^="specialTab"]').forEach(function(tab) {
-			if (!tab.getAttribute('aria-label')) {
-				var text = tab.textContent || tab.innerText || '';
-				var onclickStr = tab.getAttribute('onclick') || '';
-				if (text.includes('Krumblor') || onclickStr.includes('dragon')) {
-					tab.setAttribute('aria-label', 'Krumblor the Dragon');
-				} else if (text.includes('Santa') || onclickStr.includes('santa')) {
-					tab.setAttribute('aria-label', "Santa's Progress");
-				} else if (text) {
-					tab.setAttribute('aria-label', text.trim());
-				}
-				tab.setAttribute('role', 'button');
-				tab.setAttribute('tabindex', '0');
+		// Create or update buttons for each tab
+		for (var i = 0; i < Game.specialTabs.length; i++) {
+			var tabName = Game.specialTabs[i];
+			var btnId = 'a11ySpecialTab_' + tabName;
+			var btn = l(btnId);
+			if (!btn) {
+				btn = document.createElement('div');
+				btn.id = btnId;
+				btn.dataset.specialTab = tabName;
+				btn.setAttribute('role', 'button');
+				btn.setAttribute('tabindex', '0');
+				btn.style.cssText = 'width:48px;height:48px;pointer-events:auto;cursor:pointer;';
+				btn.addEventListener('click', (function(name) {
+					return function() {
+						if (Game.specialTab === name) {
+							Game.ToggleSpecialMenu(0);
+						} else {
+							Game.specialTab = name;
+							Game.ToggleSpecialMenu(1);
+						}
+						PlaySound('snd/press.mp3');
+					};
+				})(tabName));
+				btn.addEventListener('keydown', (function(name) {
+					return function(e) {
+						if (e.key === 'Enter' || e.key === ' ') {
+							e.preventDefault();
+							if (Game.specialTab === name) {
+								Game.ToggleSpecialMenu(0);
+							} else {
+								Game.specialTab = name;
+								Game.ToggleSpecialMenu(1);
+							}
+							PlaySound('snd/press.mp3');
+						}
+					};
+				})(tabName));
+				container.appendChild(btn);
 			}
-		});
-		// One-time aria-live confirmation
-		if (!MOD.announcedFix) {
-			MOD.announcedFix = true;
-			MOD.announce('NVDA Accessibility mod loaded successfully.');
+			// Update label - changes based on open/closed state
+			var label = '';
+			var isSelected = (Game.specialTab === tabName);
+			if (tabName === 'dragon') {
+				label = isSelected ? 'Close Krumblor the Dragon' : 'Krumblor the Dragon';
+			} else if (tabName === 'santa') {
+				label = isSelected ? "Close Santa's Progress" : "Santa's Progress";
+			} else {
+				label = isSelected ? ('Close ' + tabName) : (tabName + ' tab');
+			}
+			MOD.setAttributeIfChanged(btn, 'aria-label', label);
 		}
 	},
 	createLiveRegion: function() {
@@ -567,207 +593,291 @@ Game.registerMod("nvda accessibility", {
 	},
 	enhanceDragonUI: function() {
 		var MOD = this;
+		if (Game.specialTab !== 'dragon') {
+			var existing = l('a11yDragonPanel');
+			if (existing) existing.remove();
+			return;
+		}
+		// Hide the game's visual popup from screen readers when our panel replaces it
 		var popup = l('specialPopup');
-		if (!popup) return;
-		// Label option buttons
-		popup.querySelectorAll('.option').forEach(function(b) {
-			b.setAttribute('role', 'button');
-			b.setAttribute('tabindex', '0');
-			if (!b.dataset.a11yEnhanced) {
-				b.dataset.a11yEnhanced = 'true';
-				b.addEventListener('keydown', function(e) {
-					if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); b.click(); }
-				});
-			}
-		});
-		// Pet dragon button
-		var petBtn = popup.querySelector('[onclick*="PetDragon"]');
-		if (petBtn) {
-			petBtn.setAttribute('aria-label', 'Pet Krumblor');
-			petBtn.setAttribute('role', 'button');
-			petBtn.setAttribute('tabindex', '0');
-			if (!petBtn.dataset.a11yEnhanced) {
-				petBtn.dataset.a11yEnhanced = 'true';
-				petBtn.addEventListener('keydown', function(e) {
-					if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); petBtn.click(); }
-				});
-			}
-		}
-		// Upgrade dragon button
-		var upgradeBtn = popup.querySelector('[onclick*="UpgradeDragon"]');
-		if (upgradeBtn) {
-			var level = Game.dragonLevel || 0;
-			var lbl = 'Upgrade Krumblor. Current level: ' + level + '.';
-			upgradeBtn.setAttribute('aria-label', lbl);
-			upgradeBtn.setAttribute('role', 'button');
-			upgradeBtn.setAttribute('tabindex', '0');
-			if (!upgradeBtn.dataset.a11yEnhanced) {
-				upgradeBtn.dataset.a11yEnhanced = 'true';
-				upgradeBtn.addEventListener('keydown', function(e) {
-					if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); upgradeBtn.click(); }
-				});
-			}
-		}
-		// Dragon aura slots - add click-based selection
-		MOD.enhanceDragonAuraSlots(popup);
+		if (popup) popup.setAttribute('aria-hidden', 'true');
+		MOD.createDragonPanel();
 	},
-	enhanceDragonAuraSlots: function(popup) {
+	createDragonPanel: function() {
 		var MOD = this;
-		if (!popup) return;
-		// Find aura slots
-		var auraSlots = popup.querySelectorAll('.crate.enabled[onclick*="DragonAura"], .dragonAuraSlot, [id*="dragonAura"]');
-		auraSlots.forEach(function(slot, idx) {
-			var slotNum = idx;
-			var currentAura = slotNum === 0 ? Game.dragonAura : Game.dragonAura2;
-			var auraName = (Game.dragonAuraNames && Game.dragonAuraNames[currentAura]) || 'None';
-			var lbl = 'Dragon Aura slot ' + (slotNum + 1) + ': ' + auraName + '. Click to change.';
-			slot.setAttribute('aria-label', lbl);
-			slot.setAttribute('role', 'button');
-			slot.setAttribute('tabindex', '0');
-			if (!slot.dataset.a11yAuraEnhanced) {
-				slot.dataset.a11yAuraEnhanced = 'true';
-				slot.addEventListener('keydown', function(e) {
-					if (e.key === 'Enter' || e.key === ' ') {
-						e.preventDefault();
-						MOD.showDragonAuraDialog(slotNum);
-					}
-				});
-				slot.addEventListener('click', function(e) {
-					if (e.isTrusted) {
-						e.preventDefault();
-						e.stopPropagation();
-						MOD.showDragonAuraDialog(slotNum);
-					}
-				}, true);
+		var level = Game.dragonLevel || 0;
+		var levelInfo = Game.dragonLevels ? Game.dragonLevels[level] : null;
+		// Remove old panel and rebuild with current state
+		var oldPanel = l('a11yDragonPanel');
+		if (oldPanel) oldPanel.remove();
+		// Insert directly after the tab button container in sectionLeft
+		var insertAfter = l('a11ySpecialTabButtons');
+		if (!insertAfter) return;
+		var panel = document.createElement('div');
+		panel.id = 'a11yDragonPanel';
+		panel.style.cssText = 'background:#1a1a2e;border:2px solid #c90;padding:10px;margin:10px 0;';
+		// Heading
+		var heading = document.createElement('h3');
+		heading.style.cssText = 'color:#fc0;margin:0 0 10px 0;font-size:14px;';
+		heading.textContent = (levelInfo ? levelInfo.name : 'Krumblor') + ', level ' + level;
+		panel.appendChild(heading);
+		// Pet button
+		if (level >= 4 && Game.Has('Pet the dragon')) {
+			var petBtn = document.createElement('button');
+			petBtn.type = 'button';
+			petBtn.textContent = 'Pet Krumblor';
+			petBtn.style.cssText = 'display:block;width:100%;padding:8px;margin:5px 0;background:#363;border:1px solid #6a6;color:#fff;cursor:pointer;';
+			petBtn.addEventListener('click', function() {
+				Game.ClickSpecialPic();
+				MOD.announce('Petted Krumblor');
+			});
+			panel.appendChild(petBtn);
+		}
+		// Upgrade button
+		if (level < Game.dragonLevels.length - 1) {
+			var upgradeBtn = document.createElement('button');
+			upgradeBtn.type = 'button';
+			var upgradeLbl = 'Upgrade Krumblor';
+			if (levelInfo) {
+				if (levelInfo.action) upgradeLbl = MOD.stripHtml(levelInfo.action);
+				if (levelInfo.costStr) upgradeLbl += '. Cost: ' + MOD.stripHtml(levelInfo.costStr());
 			}
-		});
-	},
-	showDragonAuraDialog: function(slotIndex) {
-		var MOD = this;
-		// Remove existing dialog
-		var existing = l('a11yDragonAuraDialog');
-		if (existing) existing.remove();
-		// Get available auras
-		var auras = [];
-		if (Game.dragonAuraNames) {
-			for (var i = 0; i < Game.dragonAuraNames.length; i++) {
-				if (Game.dragonAuraNames[i]) {
-					auras.push({ id: i, name: Game.dragonAuraNames[i] });
-				}
+			upgradeBtn.setAttribute('aria-label', upgradeLbl);
+			upgradeBtn.textContent = 'Upgrade';
+			upgradeBtn.style.cssText = 'display:block;width:100%;padding:8px;margin:5px 0;background:#336;border:1px solid #66a;color:#fff;cursor:pointer;';
+			upgradeBtn.addEventListener('click', function() {
+				Game.UpgradeDragon();
+			});
+			panel.appendChild(upgradeBtn);
+		} else {
+			var maxDiv = document.createElement('div');
+			maxDiv.style.cssText = 'color:#aaa;padding:4px 0;';
+			maxDiv.textContent = levelInfo ? MOD.stripHtml(levelInfo.action) : 'Fully trained';
+			panel.appendChild(maxDiv);
+		}
+		// Aura slots
+		if (level >= 5 && Game.dragonAuras) {
+			var auraHeading = document.createElement('h4');
+			auraHeading.style.cssText = 'color:#fc0;margin:10px 0 5px 0;font-size:13px;';
+			auraHeading.textContent = 'Dragon Auras';
+			panel.appendChild(auraHeading);
+			// Slot 1
+			MOD.createAuraSlotUI(panel, 0);
+			// Slot 2 (unlocked at level 27)
+			if (level >= 27) {
+				MOD.createAuraSlotUI(panel, 1);
 			}
 		}
-		// Create dialog
-		var dialog = document.createElement('div');
-		dialog.id = 'a11yDragonAuraDialog';
-		dialog.setAttribute('role', 'dialog');
-		dialog.setAttribute('aria-modal', 'true');
-		dialog.setAttribute('aria-label', 'Select Dragon Aura for slot ' + (slotIndex + 1));
-		dialog.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#1a1a2e;border:3px solid #c90;padding:20px;z-index:100000000;max-height:80vh;overflow-y:auto;min-width:400px;color:#fff;font-family:Merriweather,Georgia,serif;';
-		// Title
-		var title = document.createElement('h2');
-		title.textContent = 'Select Aura for Slot ' + (slotIndex + 1);
-		title.style.cssText = 'margin:0 0 15px 0;color:#fc0;';
-		dialog.appendChild(title);
-		// Aura list
-		var list = document.createElement('div');
-		list.setAttribute('role', 'listbox');
-		list.style.cssText = 'max-height:300px;overflow-y:auto;';
-		auras.forEach(function(aura) {
-			var btn = document.createElement('button');
-			btn.textContent = aura.name;
-			btn.setAttribute('role', 'option');
-			btn.setAttribute('aria-label', aura.name);
-			btn.style.cssText = 'display:block;width:100%;padding:10px;margin:2px 0;background:#333;border:1px solid #666;color:#fff;cursor:pointer;text-align:left;font-size:14px;';
-			btn.addEventListener('click', function() {
-				if (slotIndex === 0) {
-					Game.dragonAura = aura.id;
-				} else {
-					Game.dragonAura2 = aura.id;
-				}
-				MOD.announce(aura.name + ' set as Dragon Aura ' + (slotIndex + 1));
-				dialog.remove();
-				MOD.enhanceDragonUI();
-			});
-			btn.addEventListener('keydown', function(e) {
-				if (e.key === 'Escape') dialog.remove();
-				if (e.key === 'ArrowDown' && btn.nextElementSibling) btn.nextElementSibling.focus();
-				if (e.key === 'ArrowUp' && btn.previousElementSibling) btn.previousElementSibling.focus();
-			});
-			list.appendChild(btn);
+		insertAfter.parentNode.insertBefore(panel, insertAfter.nextSibling);
+	},
+	createAuraSlotUI: function(container, slotNum) {
+		var MOD = this;
+		var currentAura = slotNum === 0 ? Game.dragonAura : Game.dragonAura2;
+		var auraInfo = Game.dragonAuras ? Game.dragonAuras[currentAura] : null;
+		var auraName = auraInfo ? (auraInfo.dname || auraInfo.name) : 'None';
+		var auraDesc = auraInfo && auraInfo.desc ? MOD.stripHtml(auraInfo.desc) : '';
+		var slotBtn = document.createElement('button');
+		slotBtn.type = 'button';
+		slotBtn.id = 'a11yAuraSlotBtn' + slotNum;
+		slotBtn.setAttribute('aria-label', 'Aura slot ' + (slotNum + 1) + ': ' + auraName + '. ' + auraDesc + '. Activate to change.');
+		slotBtn.textContent = 'Aura ' + (slotNum + 1) + ': ' + auraName;
+		slotBtn.style.cssText = 'display:block;width:100%;padding:8px;margin:3px 0;background:#333;border:1px solid #666;color:#fff;cursor:pointer;text-align:left;';
+		// Placeholder for inline picker
+		var pickerContainer = document.createElement('div');
+		pickerContainer.id = 'a11yAuraPicker' + slotNum;
+		slotBtn.addEventListener('click', function() {
+			PlaySound('snd/tick.mp3');
+			MOD.toggleInlineAuraPicker(slotNum, pickerContainer, slotBtn);
 		});
-		dialog.appendChild(list);
-		// Cancel button
-		var cancelBtn = document.createElement('button');
-		cancelBtn.textContent = 'Cancel';
-		cancelBtn.style.cssText = 'display:block;width:100%;padding:10px;margin-top:10px;background:#600;border:2px solid #900;color:#fff;cursor:pointer;';
-		cancelBtn.addEventListener('click', function() { dialog.remove(); });
-		cancelBtn.addEventListener('keydown', function(e) { if (e.key === 'Escape') dialog.remove(); });
-		dialog.appendChild(cancelBtn);
-		document.body.appendChild(dialog);
-		// Focus first aura
-		var firstBtn = list.querySelector('button');
+		container.appendChild(slotBtn);
+		container.appendChild(pickerContainer);
+		// If this slot was being edited, reopen the picker
+		if (MOD.editingAuraSlot === slotNum) {
+			MOD.toggleInlineAuraPicker(slotNum, pickerContainer, slotBtn);
+		}
+	},
+	toggleInlineAuraPicker: function(slotNum, container, triggerBtn) {
+		var MOD = this;
+		// If already open for this slot, close it
+		if (container.childNodes.length > 0) {
+			container.innerHTML = '';
+			MOD.editingAuraSlot = -1;
+			MOD.selectedAuraForSlot = -1;
+			triggerBtn.focus();
+			return;
+		}
+		// Close any other open picker
+		var otherSlot = slotNum === 0 ? 1 : 0;
+		var otherPicker = l('a11yAuraPicker' + otherSlot);
+		if (otherPicker) otherPicker.innerHTML = '';
+		var wasAlreadyEditing = (MOD.editingAuraSlot === slotNum);
+		MOD.editingAuraSlot = slotNum;
+		var currentAura = slotNum === 0 ? Game.dragonAura : Game.dragonAura2;
+		var otherAura = slotNum === 0 ? Game.dragonAura2 : Game.dragonAura;
+		// Only reset selection when freshly opening, not during panel rebuilds
+		if (!wasAlreadyEditing || MOD.selectedAuraForSlot < 0) {
+			MOD.selectedAuraForSlot = currentAura;
+		}
+		// Cost info
+		var highestBuilding = 0;
+		for (var i in Game.Objects) { if (Game.Objects[i].amount > 0) highestBuilding = Game.Objects[i]; }
+		var picker = document.createElement('div');
+		picker.style.cssText = 'background:#222;border:1px solid #c90;padding:8px;margin:4px 0;';
+		// Cost warning
+		var costDiv = document.createElement('div');
+		costDiv.style.cssText = 'color:#aaa;font-size:12px;margin-bottom:8px;';
+		if (highestBuilding === 0) {
+			costDiv.textContent = 'Switching aura is free because you own no buildings.';
+		} else {
+			costDiv.textContent = 'Cost to switch: 1 ' + highestBuilding.single + '. This will affect your CpS.';
+		}
+		picker.appendChild(costDiv);
+		// Aura buttons
+		var firstBtn = null;
+		for (var i in Game.dragonAuras) {
+			var aId = parseInt(i);
+			if (Game.dragonLevel < aId + 4) continue;
+			if (aId !== 0 && aId == otherAura) continue; // Can't pick same aura as other slot
+			var aura = Game.dragonAuras[aId];
+			var name = aura.dname || aura.name;
+			var desc = aura.desc ? MOD.stripHtml(aura.desc) : '';
+			var isCurrent = (aId === currentAura);
+			var isPickedNow = (aId === MOD.selectedAuraForSlot);
+			var auraBtn = document.createElement('button');
+			auraBtn.type = 'button';
+			var prefix = isCurrent ? 'Current aura. ' : '';
+			if (isPickedNow && !isCurrent) prefix = 'Selected. ';
+			auraBtn.setAttribute('aria-label', prefix + name + '. ' + desc);
+			auraBtn.textContent = name + (isCurrent ? ' (current)' : '');
+			auraBtn.style.cssText = 'display:block;width:100%;padding:6px 8px;margin:2px 0;background:' + (isPickedNow ? '#453' : '#333') + ';border:1px solid ' + (isPickedNow ? '#6a6' : '#555') + ';color:#fff;cursor:pointer;text-align:left;font-size:13px;';
+			auraBtn.dataset.auraId = aId;
+			(function(id, btn, curAura) {
+				btn.addEventListener('click', function() {
+					MOD.selectedAuraForSlot = id;
+					// Update highlight and aria-labels on all buttons in picker
+					var allBtns = picker.querySelectorAll('button[data-aura-id]');
+					for (var j = 0; j < allBtns.length; j++) {
+						var bId = parseInt(allBtns[j].dataset.auraId);
+						var isSelected = (bId === id);
+						var bIsCurrent = (bId === curAura);
+						allBtns[j].style.background = isSelected ? '#453' : '#333';
+						allBtns[j].style.borderColor = isSelected ? '#6a6' : '#555';
+						var bAura = Game.dragonAuras[bId];
+						var bName = bAura.dname || bAura.name;
+						var bDesc = bAura.desc ? MOD.stripHtml(bAura.desc) : '';
+						var bPrefix = bIsCurrent ? 'Current aura. ' : '';
+						if (isSelected && !bIsCurrent) bPrefix = 'Selected. ';
+						allBtns[j].setAttribute('aria-label', bPrefix + bName + '. ' + bDesc);
+					}
+					PlaySound('snd/tick.mp3');
+					MOD.announce(Game.dragonAuras[id].dname || Game.dragonAuras[id].name);
+				});
+			})(aId, auraBtn, currentAura);
+			picker.appendChild(auraBtn);
+			if (!firstBtn) firstBtn = auraBtn;
+		}
+		// Confirm / Dismiss buttons
+		var btnRow = document.createElement('div');
+		btnRow.style.cssText = 'margin-top:8px;display:flex;gap:4px;';
+		var confirmBtn = document.createElement('button');
+		confirmBtn.type = 'button';
+		confirmBtn.textContent = 'Confirm';
+		confirmBtn.style.cssText = 'flex:1;padding:8px;background:#363;border:1px solid #6a6;color:#fff;cursor:pointer;';
+		confirmBtn.addEventListener('click', function() {
+			var selected = MOD.selectedAuraForSlot;
+			if (selected >= 0) {
+				if (slotNum === 0) Game.dragonAura = selected;
+				else Game.dragonAura2 = selected;
+				// Pay cost if aura actually changed and player owns buildings
+				if (selected !== currentAura && highestBuilding !== 0) {
+					highestBuilding.sacrifice(1);
+				}
+				Game.recalculateGains = 1;
+			}
+			MOD.editingAuraSlot = -1;
+			MOD.selectedAuraForSlot = -1;
+			Game.ToggleSpecialMenu(1);
+		});
+		btnRow.appendChild(confirmBtn);
+		var dismissBtn = document.createElement('button');
+		dismissBtn.type = 'button';
+		dismissBtn.textContent = 'Dismiss';
+		dismissBtn.setAttribute('aria-label', 'Dismiss aura selection');
+		dismissBtn.style.cssText = 'flex:1;padding:8px;background:#633;border:1px solid #966;color:#fff;cursor:pointer;';
+		dismissBtn.addEventListener('click', function() {
+			container.innerHTML = '';
+			MOD.editingAuraSlot = -1;
+			MOD.selectedAuraForSlot = -1;
+			triggerBtn.focus();
+		});
+		btnRow.appendChild(dismissBtn);
+		picker.appendChild(btnRow);
+		container.appendChild(picker);
+		// Focus the first aura button
 		if (firstBtn) firstBtn.focus();
-		MOD.announce('Dragon Aura selection dialog opened. ' + auras.length + ' auras available.');
 	},
 	updateDragonLabels: function() {
-		this.enhanceDragonUI();
+		// Only rebuild the panel if dragon tab is open
+		if (Game.specialTab === 'dragon') {
+			this.createDragonPanel();
+		}
 	},
 	enhanceSantaUI: function() {
 		var MOD = this;
-		// Santa panel appears in specialPopup when opened
+		if (Game.specialTab !== 'santa') {
+			var existing = l('a11ySantaPanel');
+			if (existing) existing.remove();
+			return;
+		}
+		// Hide the game's visual popup from screen readers when our panel replaces it
 		var popup = l('specialPopup');
-		if (!popup) return;
-		// Look for Santa content
-		var santaContent = popup.querySelector('.santaLevel, [onclick*="PetSanta"], [onclick*="UpgradeSanta"]');
-		if (!santaContent) return;
-		// Label the pet santa button
-		var petBtn = popup.querySelector('[onclick*="PetSanta"]');
-		if (petBtn) {
-			petBtn.setAttribute('aria-label', 'Pet Santa');
-			petBtn.setAttribute('role', 'button');
-			petBtn.setAttribute('tabindex', '0');
-			if (!petBtn.dataset.a11yEnhanced) {
-				petBtn.dataset.a11yEnhanced = 'true';
-				petBtn.addEventListener('keydown', function(e) {
-					if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); petBtn.click(); }
-				});
-			}
+		if (popup) popup.setAttribute('aria-hidden', 'true');
+		MOD.createSantaPanel();
+	},
+	createSantaPanel: function() {
+		var MOD = this;
+		var level = Game.santaLevel || 0;
+		var maxLevel = 14;
+		var oldPanel = l('a11ySantaPanel');
+		if (oldPanel) oldPanel.remove();
+		var insertAfter = l('a11ySpecialTabButtons');
+		if (!insertAfter) return;
+		var panel = document.createElement('div');
+		panel.id = 'a11ySantaPanel';
+		panel.setAttribute('role', 'region');
+		panel.setAttribute('aria-label', "Santa's Progress");
+		panel.style.cssText = 'background:#1a1a2e;border:2px solid #a66;padding:10px;margin:10px 0;';
+		// Heading
+		var heading = document.createElement('h3');
+		heading.style.cssText = 'color:#f66;margin:0 0 10px 0;font-size:14px;';
+		var santaName = (Game.santaLevels && Game.santaLevels[level]) ? Game.santaLevels[level] : 'Santa';
+		heading.textContent = santaName + ', level ' + level + ' of ' + maxLevel;
+		panel.appendChild(heading);
+		// Upgrade button
+		if (level < maxLevel) {
+			var cost = Math.pow(level + 1, level + 1);
+			var canAfford = Game.cookies >= cost;
+			var upgradeBtn = document.createElement('button');
+			upgradeBtn.type = 'button';
+			upgradeBtn.setAttribute('aria-label', 'Evolve Santa. Cost: ' + Beautify(cost) + ' cookies' + (canAfford ? '' : ' (cannot afford)'));
+			upgradeBtn.textContent = 'Evolve';
+			upgradeBtn.style.cssText = 'display:block;width:100%;padding:8px;margin:5px 0;background:#336;border:1px solid #66a;color:#fff;cursor:pointer;';
+			upgradeBtn.addEventListener('click', function() {
+				Game.UpgradeSanta();
+			});
+			panel.appendChild(upgradeBtn);
+		} else {
+			var maxDiv = document.createElement('div');
+			maxDiv.style.cssText = 'color:#aaa;padding:4px 0;';
+			maxDiv.textContent = 'Maximum level reached.';
+			panel.appendChild(maxDiv);
 		}
-		// Label the upgrade santa button
-		var upgradeBtn = popup.querySelector('[onclick*="UpgradeSanta"]');
-		if (upgradeBtn) {
-			var level = Game.santaLevel || 0;
-			var maxLevel = 14;
-			var lbl = 'Upgrade Santa. Current level: ' + level + ' of ' + maxLevel + '.';
-			if (level < maxLevel) {
-				lbl += ' Click to upgrade.';
-			} else {
-				lbl += ' Maximum level reached.';
-			}
-			upgradeBtn.setAttribute('aria-label', lbl);
-			upgradeBtn.setAttribute('role', 'button');
-			upgradeBtn.setAttribute('tabindex', '0');
-			if (!upgradeBtn.dataset.a11yEnhanced) {
-				upgradeBtn.dataset.a11yEnhanced = 'true';
-				upgradeBtn.addEventListener('keydown', function(e) {
-					if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); upgradeBtn.click(); }
-				});
-			}
-		}
-		// Label any option buttons
-		popup.querySelectorAll('.option').forEach(function(opt) {
-			opt.setAttribute('role', 'button');
-			opt.setAttribute('tabindex', '0');
-			if (!opt.dataset.a11yEnhanced) {
-				opt.dataset.a11yEnhanced = 'true';
-				opt.addEventListener('keydown', function(e) {
-					if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); opt.click(); }
-				});
-			}
-		});
+		insertAfter.parentNode.insertBefore(panel, insertAfter.nextSibling);
 	},
 	updateSantaLabels: function() {
-		this.enhanceSantaUI();
+		if (Game.specialTab === 'santa') {
+			this.createSantaPanel();
+		}
 	},
 	updateLegacyButtonLabel: function() {
 		var lb = l('legacyButton');
@@ -922,7 +1032,7 @@ Game.registerMod("nvda accessibility", {
 				var variant = MOD.getShimmerVariantName(me);
 
 				// Non-buff effects: include the captured popup text in the announcement
-				// Buff effects: just announce "clicked!" — the buff tracker handles the rest
+				// Buff effects: just announce "clicked!"  - the buff tracker handles the rest
 				var nonBuffEffects = ['multiply cookies', 'ruin cookies', 'blab',
 				                      'free sugar lump', 'chain cookie'];
 				var lastEffect = Game.shimmerTypes.golden.last;
@@ -2243,7 +2353,7 @@ Game.registerMod("nvda accessibility", {
 								// Find button container before moving anything
 								var btnContainer = godEl.nextSibling;
 								if (!btnContainer || btnContainer.className !== 'a11y-spirit-controls') btnContainer = null;
-								// Move a11y elements, then god, then buttons — all before the placeholder
+								// Move a11y elements, then god, then buttons  - all before the placeholder
 								var headingEl = l('a11y-god-heading-' + god.id);
 								var flavorEl = l('a11y-god-flavor-' + god.id);
 								var buffEl = l('a11y-god-buff-' + god.id);
@@ -2981,7 +3091,7 @@ Game.registerMod("nvda accessibility", {
 			}
 		}
 	},
-	// labelUpgradeCrate (store version) removed — populateUpgradeLabel now handles store upgrade buttons directly
+	// labelUpgradeCrate (store version) removed  - populateUpgradeLabel now handles store upgrade buttons directly
 	getToggleUpgradeEffect: function(u) {
 		var MOD = this;
 		if (!u) return '';
