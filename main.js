@@ -316,6 +316,21 @@ Game.registerMod("nvda accessibility", {
 			element.textContent = newText;
 		}
 	},
+	getBuildingLevelLabel: function(bld) {
+		var level = parseInt(bld.level) || 0;
+		var lumpCost = level + 1;
+		var canAfford = Game.lumps >= lumpCost;
+		var label = bld.name + ' Level ' + level;
+		if (level > 0) {
+			label += ', grants +' + level + '% ' + bld.name + ' CpS';
+		}
+		label += '. Upgrade for ' + lumpCost + ' sugar lump' + (lumpCost > 1 ? 's' : '');
+		label += canAfford ? ', can afford' : ', cannot afford';
+		if (level === 0 && bld.minigameUrl) {
+			label += '. Levelling up unlocks a minigame';
+		}
+		return label;
+	},
 	findSelectorCrate: function(upgradeName) {
 		var upg = Game.Upgrades[upgradeName];
 		if (!upg) return null;
@@ -2591,8 +2606,13 @@ Game.registerMod("nvda accessibility", {
 			var godEl = l('templeGod' + god.id);
 			if (!godEl) continue;
 			var slotted = pan.slot.indexOf(god.id);
-			var desc = god.desc1 || god.desc || '';
-			var cleanDesc = MOD.stripHtml(desc).replace(/ +\./g, '.').replace(/ +,/g, ',');
+			var descParts = [];
+			if (god.descBefore) descParts.push(MOD.stripHtml(god.descBefore));
+			if (god.desc1) descParts.push('Diamond: ' + MOD.stripHtml(god.desc1));
+			if (god.desc2) descParts.push('Ruby: ' + MOD.stripHtml(god.desc2));
+			if (god.desc3) descParts.push('Jade: ' + MOD.stripHtml(god.desc3));
+			if (god.descAfter) descParts.push(MOD.stripHtml(god.descAfter));
+			var cleanDesc = descParts.join('. ').replace(/ +\./g, '.').replace(/ +,/g, ',');
 			var flavorText = god.quote ? MOD.stripHtml(god.quote).replace(/ +\./g, '.').replace(/ +,/g, ',') : '';
 			// Hide the god element from screen readers
 			godEl.setAttribute('aria-hidden', 'true');
@@ -2841,7 +2861,11 @@ Game.registerMod("nvda accessibility", {
 				// 2. Add effect description after the cast button
 				var effectId = 'a11y-spell-effect-' + sp.id;
 				var existingEffect = l(effectId);
-				var effectText = 'Effect: ' + MOD.stripHtml(sp.desc || '');
+				var effectText = 'Effect: ' + MOD.stripHtml(sp.descFunc ? sp.descFunc() : (sp.desc || ''));
+				if (sp.fail) {
+					var backfireChance = Math.ceil(100 * grim.getFailChance(sp));
+					effectText += '. Backfire (' + backfireChance + '% chance): ' + MOD.stripHtml(sp.failDesc || '');
+				}
 				var castBtnEl = l(castBtnId);
 				if (!existingEffect && castBtnEl) {
 					var effectDiv = document.createElement('div');
@@ -2854,6 +2878,8 @@ Game.registerMod("nvda accessibility", {
 					} else {
 						castBtnEl.parentNode.appendChild(effectDiv);
 					}
+				} else if (existingEffect) {
+					MOD.setTextIfChanged(existingEffect, effectText);
 				}
 			}
 		});
@@ -5132,9 +5158,7 @@ Game.registerMod("nvda accessibility", {
 		if (cursorBld) {
 			var cursorLevelBtn = l('a11yCursorLevelBtn');
 			if (cursorLevelBtn) {
-				var cursorLevel = parseInt(cursorBld.level) || 0;
-				var cursorLumpCost = cursorLevel + 1;
-				MOD.setAttributeIfChanged(cursorLevelBtn, 'aria-label', 'Cursor Level ' + cursorLevel + '. Click to upgrade for ' + cursorLumpCost + ' sugar lump' + (cursorLumpCost > 1 ? 's' : ''));
+				MOD.setAttributeIfChanged(cursorLevelBtn, 'aria-label', MOD.getBuildingLevelLabel(cursorBld));
 			}
 			// Hide the original productLevel0 in sectionLeftExtra from screen readers
 			var origCursorLevel = l('productLevel0');
@@ -5178,7 +5202,7 @@ Game.registerMod("nvda accessibility", {
 				rowEl.querySelectorAll('div[onclick], .rowSpecial, .rowCanvas').forEach(function(el) {
 					var onclick = el.getAttribute('onclick') || '';
 					if (onclick.includes('levelUp') || onclick.includes('Level')) {
-						MOD.setAttributeIfChanged(el, 'aria-label', bld.name + ' Level ' + level + '. Click to upgrade for ' + lumpCost + ' sugar lump' + (lumpCost > 1 ? 's' : ''));
+						MOD.setAttributeIfChanged(el, 'aria-label', MOD.getBuildingLevelLabel(bld));
 						el.setAttribute('role', 'button');
 						el.setAttribute('tabindex', '0');
 					} else if (onclick.includes('minigame') || onclick.includes('Minigame')) {
@@ -5209,7 +5233,7 @@ Game.registerMod("nvda accessibility", {
 				// Also check for .level elements in the row
 				var levelEl = rowEl.querySelector('.level, .objectLevel');
 				if (levelEl) {
-					MOD.setAttributeIfChanged(levelEl, 'aria-label', bld.name + ' Level ' + level + '. Click to upgrade for ' + lumpCost + ' sugar lump' + (lumpCost > 1 ? 's' : ''));
+					MOD.setAttributeIfChanged(levelEl, 'aria-label', MOD.getBuildingLevelLabel(bld));
 					levelEl.setAttribute('role', 'button');
 					levelEl.setAttribute('tabindex', '0');
 				}
@@ -5217,7 +5241,7 @@ Game.registerMod("nvda accessibility", {
 			// Also label the productLevel button in the right section (this is the main level upgrade button)
 			var productLevelEl = l('productLevel' + bld.id);
 			if (productLevelEl) {
-				MOD.setAttributeIfChanged(productLevelEl, 'aria-label', bld.name + ' Level ' + level + '. Click to upgrade for ' + lumpCost + ' sugar lump' + (lumpCost > 1 ? 's' : ''));
+				MOD.setAttributeIfChanged(productLevelEl, 'aria-label', MOD.getBuildingLevelLabel(bld));
 				productLevelEl.setAttribute('role', 'button');
 				productLevelEl.setAttribute('tabindex', '0');
 			}
@@ -5250,9 +5274,7 @@ Game.registerMod("nvda accessibility", {
 						var rowId = parent.id.replace('row', '');
 						var bld = Game.ObjectsById[rowId];
 						if (bld) {
-							var level = parseInt(bld.level) || 0;
-							var lumpCost = level + 1;
-							MOD.setAttributeIfChanged(el, 'aria-label', bld.name + ' Level ' + level + '. Click to upgrade for ' + lumpCost + ' sugar lump' + (lumpCost > 1 ? 's' : ''));
+							MOD.setAttributeIfChanged(el, 'aria-label', MOD.getBuildingLevelLabel(bld));
 							el.setAttribute('role', 'button');
 							el.setAttribute('tabindex', '0');
 						}
