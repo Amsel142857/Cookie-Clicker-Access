@@ -56,6 +56,17 @@ var GardenModule = (function() {
 		var mature = plant.mature || 100;
 		var growthPct = Math.floor((age / mature) * 100);
 		var isMature = age >= mature;
+		// Stage calculation matching game's tileTooltip logic
+		var stageNum, stage, effectScale;
+		if (age >= mature) {
+			stageNum = 4; stage = 'mature'; effectScale = 100;
+		} else if (age >= mature * 0.666) {
+			stageNum = 3; stage = 'bloom'; effectScale = 50;
+		} else if (age >= mature * 0.333) {
+			stageNum = 2; stage = 'sprout'; effectScale = 25;
+		} else {
+			stageNum = 1; stage = 'bud'; effectScale = 10;
+		}
 		var status = isMature ? 'Mature' : (growthPct < 33 ? 'Budding' : 'Growing');
 
 		return {
@@ -64,7 +75,13 @@ var GardenModule = (function() {
 			growth: growthPct,
 			status: status,
 			isMature: isMature,
-			plantId: plantId
+			plantId: plantId,
+			stage: stage,
+			stageNum: stageNum,
+			effectScale: effectScale,
+			age: age,
+			matureAge: mature,
+			plant: plant
 		};
 	}
 
@@ -85,9 +102,28 @@ var GardenModule = (function() {
 				}
 			}
 		} else {
-			text += info.name + ', ' + info.growth + '%, ' + info.status;
+			text += info.name + ', ' + info.stage + ', ' + info.growth + '%';
 			if (info.isMature) {
 				text += '. Press Enter to harvest';
+				if (info.plant && !info.plant.immortal) {
+					var g = getGarden();
+					var dragonBoost = 1 / (1 + 0.05 * Game.auraMult('Supreme Intellect'));
+					var avgTick = info.plant.ageTick + info.plant.ageTickR / 2;
+					var ageMult = (g.plotBoost && g.plotBoost[y] && g.plotBoost[y][x]) ? g.plotBoost[y][x][0] : 1;
+					var decayFrames = ((100 / (ageMult * avgTick)) * ((100 - info.age) / 100) * dragonBoost * g.stepT) * 30;
+					text += '. Decays in about ' + Game.sayTime(decayFrames, -1);
+				} else if (info.plant && info.plant.immortal) {
+					text += '. Does not decay';
+				}
+			} else {
+				if (info.plant) {
+					var g = getGarden();
+					var dragonBoost = 1 / (1 + 0.05 * Game.auraMult('Supreme Intellect'));
+					var avgTick = info.plant.ageTick + info.plant.ageTickR / 2;
+					var ageMult = (g.plotBoost && g.plotBoost[y] && g.plotBoost[y][x]) ? g.plotBoost[y][x][0] : 1;
+					var matFrames = ((100 / (ageMult * avgTick)) * ((info.matureAge - info.age) / 100) * dragonBoost * g.stepT) * 30;
+					text += '. Matures in about ' + Game.sayTime(matFrames, -1);
+				}
 			}
 		}
 

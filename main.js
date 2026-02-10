@@ -62,6 +62,7 @@ Game.registerMod("nvda accessibility", {
 		MOD.minigameInitDone = {};
 		MOD.gardenBuildPanelWrapped = false;
 		MOD.gardenBuildPlotWrapped = false;
+		MOD.stockMarketWrapped = false;
 		MOD.highestOwnedBuildingId = -1;
 		setTimeout(function() {
 			MOD.enhanceMainUI();
@@ -105,6 +106,7 @@ Game.registerMod("nvda accessibility", {
 			MOD.minigameInitDone = {};
 			MOD.gardenBuildPanelWrapped = false;
 			MOD.gardenBuildPlotWrapped = false;
+			MOD.stockMarketWrapped = false;
 			MOD.initRetriesComplete = false;
 			var milkPanel = l('a11yMilkSelectorPanel');
 			if (milkPanel) milkPanel.remove();
@@ -1569,9 +1571,43 @@ Game.registerMod("nvda accessibility", {
 			var pl = g.plantsById[t[0] - 1];
 			if (pl) {
 				var mature = pl.mature || 100;
-				var pct = Math.floor((t[1] / mature) * 100);
-				lbl += pl.name + ', ' + pct + '% grown';
-				if (t[1] >= mature) lbl += ', READY to harvest';
+				var age = t[1];
+				var pct = Math.floor((age / mature) * 100);
+				// Stage calculation
+				var stage, effectScale;
+				if (age >= mature) {
+					stage = 'mature'; effectScale = 100;
+				} else if (age >= mature * 0.666) {
+					stage = 'bloom'; effectScale = 50;
+				} else if (age >= mature * 0.333) {
+					stage = 'sprout'; effectScale = 25;
+				} else {
+					stage = 'bud'; effectScale = 10;
+				}
+				lbl += pl.name + ', ' + stage + ' (' + pct + '% grown, effects ' + effectScale + '%)';
+				if (age >= mature) {
+					lbl += ', may reproduce, drops seed when harvested';
+				}
+				// Time estimate
+				var dragonBoost = 1 / (1 + 0.05 * Game.auraMult('Supreme Intellect'));
+				var avgTick = pl.ageTick + pl.ageTickR / 2;
+				var ageMult = (g.plotBoost && g.plotBoost[y] && g.plotBoost[y][x]) ? g.plotBoost[y][x][0] : 1;
+				if (age < mature) {
+					var matFrames = ((100 / (ageMult * avgTick)) * ((mature - age) / 100) * dragonBoost * g.stepT) * 30;
+					lbl += '. Matures in about ' + Game.sayTime(matFrames, -1);
+				} else if (!pl.immortal) {
+					var decayFrames = ((100 / (ageMult * avgTick)) * ((100 - age) / 100) * dragonBoost * g.stepT) * 30;
+					lbl += '. Decays in about ' + Game.sayTime(decayFrames, -1);
+				} else {
+					lbl += '. Does not decay';
+				}
+				// Plot boost info
+				if (g.plotBoost && g.plotBoost[y] && g.plotBoost[y][x]) {
+					var pb = g.plotBoost[y][x];
+					if (pb[0] != 1) lbl += '. Aging multiplier: ' + Beautify(pb[0] * 100) + '%';
+					if (pb[1] != 1) lbl += '. Effect multiplier: ' + Beautify(pb[1] * 100) + '%';
+					if (pb[2] != 1) lbl += '. Weed repellent: ' + Beautify(100 - pb[2] * 100) + '%';
+				}
 			} else {
 				lbl += 'Unknown plant';
 			}
@@ -1625,13 +1661,20 @@ Game.registerMod("nvda accessibility", {
 			if (!plant) continue;
 			var seed = l('gardenSeed-' + seedId);
 			if (!seed) continue;
-			var lbl = plant.name;
+			var lbl;
 			if (!plant.unlocked) {
-				lbl = 'Locked seed: ' + plant.name;
-			} else if (plant.effsStr) {
-				lbl += '. ' + MOD.stripHtml(plant.effsStr);
+				lbl = 'Locked: ' + plant.name;
+			} else if (plant.plantable === false) {
+				lbl = plant.name + '. Cannot be planted';
+			} else if (Game.Has('Turbo-charged soil')) {
+				lbl = plant.name + '. Free to plant';
+			} else {
+				var cost = g.getCost(plant);
+				var canAfford = g.canPlant(plant);
+				lbl = plant.name + '. Cost: ' + Beautify(Math.round(cost)) + ' cookies. ' + (canAfford ? 'Affordable' : 'Cannot afford');
 			}
 			seed.setAttribute('aria-label', lbl);
+			MOD.ensureSeedInfoText(g, plant, seed);
 			seed.setAttribute('role', 'button');
 			seed.setAttribute('tabindex', '0');
 			if (!seed.getAttribute('data-a11y-kb')) {
@@ -1833,7 +1876,6 @@ Game.registerMod("nvda accessibility", {
 		var headingsToAdd = [
 			{ id: 'a11yGardenToolsHeading', text: 'Tools', beforeId: 'gardenTools' },
 			{ id: 'a11yGardenSoilHeading', text: 'Soil', beforeId: 'gardenSoil-0' },
-			{ id: 'a11yGardenSeedsHeading', text: 'Seeds', beforeId: 'gardenSeedsUnlocked' },
 		];
 		for (var i = 0; i < headingsToAdd.length; i++) {
 			var h = headingsToAdd[i];
@@ -1848,16 +1890,48 @@ Game.registerMod("nvda accessibility", {
 				}
 			}
 		}
+		// Seeds heading with discovery count (updated dynamically)
+		var seedsUnlockedEl = l('gardenSeedsUnlocked');
+		if (seedsUnlockedEl) {
+			seedsUnlockedEl.setAttribute('aria-hidden', 'true');
+			var seedsHeading = l('a11yGardenSeedsHeading');
+			var seedsText = 'Seeds, ' + g.plantsUnlockedN + ' of ' + g.plantsN + ' discovered';
+			if (!seedsHeading) {
+				seedsHeading = document.createElement('h3');
+				seedsHeading.id = 'a11yGardenSeedsHeading';
+				seedsHeading.style.cssText = 'color:#6c6;margin:8px 0 4px 0;font-size:14px;';
+				seedsUnlockedEl.parentNode.insertBefore(seedsHeading, seedsUnlockedEl);
+			}
+			seedsHeading.textContent = seedsText;
+		}
 
-		// Use a region instead of a heading for the plot area
+		// Plots heading with size level
 		var gardenPlot = l('gardenPlot');
 		if (gardenPlot) {
-			MOD.setAttributeIfChanged(gardenPlot, 'role', 'region');
-			MOD.setAttributeIfChanged(gardenPlot, 'aria-label', 'Plots');
+			gardenPlot.removeAttribute('role');
+			gardenPlot.removeAttribute('aria-label');
 		}
-		// Clean up old heading for users upgrading from previous version
-		var oldPlotHeading = l('a11yGardenPlotHeading');
-		if (oldPlotHeading) oldPlotHeading.remove();
+		var plotSizeEl = l('gardenPlotSize');
+		if (plotSizeEl) {
+			plotSizeEl.setAttribute('aria-hidden', 'true');
+		}
+		var plotLevel = Math.max(1, Math.min(g.plotLimits.length, g.parent.level));
+		var plotTotal = g.plotLimits.length;
+		var plotHeading = l('a11yGardenPlotHeading');
+		var plotText = 'Plots, ' + plotLevel + '/' + plotTotal + ' (upgrades with farm level)';
+		if (plotLevel >= plotTotal) {
+			plotText = 'Plots, max size';
+		}
+		if (!plotHeading) {
+			plotHeading = document.createElement('h3');
+			plotHeading.id = 'a11yGardenPlotHeading';
+			plotHeading.style.cssText = 'color:#6c6;margin:8px 0 4px 0;font-size:14px;';
+			var gardenField = l('gardenField');
+			if (gardenField && gardenField.parentNode) {
+				gardenField.parentNode.insertBefore(plotHeading, gardenField);
+			}
+		}
+		plotHeading.textContent = plotText;
 	},
 	createGardenAccessiblePanel: function(g) {
 		var MOD = this;
@@ -1946,12 +2020,30 @@ Game.registerMod("nvda accessibility", {
 				btn.style.color = '#fff';
 			}
 		} else if (info.isMature) {
-			label += info.name + ', READY. Press Enter to harvest';
+			label += info.name + ', mature, READY. Press Enter to harvest';
+			// Time estimate for decay
+			if (info.plant && !info.plant.immortal) {
+				var dragonBoost = 1 / (1 + 0.05 * Game.auraMult('Supreme Intellect'));
+				var avgTick = info.plant.ageTick + info.plant.ageTickR / 2;
+				var ageMult = (g.plotBoost && g.plotBoost[y] && g.plotBoost[y][x]) ? g.plotBoost[y][x][0] : 1;
+				var decayFrames = ((100 / (ageMult * avgTick)) * ((100 - info.age) / 100) * dragonBoost * g.stepT) * 30;
+				label += '. Decays in about ' + Game.sayTime(decayFrames, -1);
+			} else if (info.plant && info.plant.immortal) {
+				label += '. Does not decay';
+			}
 			btn.style.background = '#3a3a2a';
 			btn.style.border = '1px solid #aa4';
 			btn.style.color = '#ffa';
 		} else {
-			label += info.name + ', ' + info.growth + '% grown';
+			label += info.name + ', ' + info.stage + ', ' + info.growth + '% grown';
+			// Time estimate for maturation
+			if (info.plant) {
+				var dragonBoost = 1 / (1 + 0.05 * Game.auraMult('Supreme Intellect'));
+				var avgTick = info.plant.ageTick + info.plant.ageTickR / 2;
+				var ageMult = (g.plotBoost && g.plotBoost[y] && g.plotBoost[y][x]) ? g.plotBoost[y][x][0] : 1;
+				var matFrames = ((100 / (ageMult * avgTick)) * ((info.matureAge - info.age) / 100) * dragonBoost * g.stepT) * 30;
+				label += '. Matures in about ' + Game.sayTime(matFrames, -1);
+			}
 			btn.style.background = '#2a2a3a';
 			btn.style.border = '1px solid #55a';
 			btn.style.color = '#aaf';
@@ -1991,6 +2083,17 @@ Game.registerMod("nvda accessibility", {
 		var mature = plant.mature || 100;
 		var growthPct = Math.floor((age / mature) * 100);
 		var isMature = age >= mature;
+		// Stage calculation matching game's tileTooltip logic
+		var stageNum, stage, effectScale;
+		if (age >= mature) {
+			stageNum = 4; stage = 'mature'; effectScale = 100;
+		} else if (age >= mature * 0.666) {
+			stageNum = 3; stage = 'bloom'; effectScale = 50;
+		} else if (age >= mature * 0.333) {
+			stageNum = 2; stage = 'sprout'; effectScale = 25;
+		} else {
+			stageNum = 1; stage = 'bud'; effectScale = 10;
+		}
 		var status = isMature ? 'Mature' : (growthPct < 33 ? 'Budding' : 'Growing');
 		return {
 			isEmpty: false,
@@ -1998,7 +2101,13 @@ Game.registerMod("nvda accessibility", {
 			growth: growthPct,
 			status: status,
 			isMature: isMature,
-			plantId: plantId
+			plantId: plantId,
+			stage: stage,
+			stageNum: stageNum,
+			effectScale: effectScale,
+			age: age,
+			matureAge: mature,
+			plant: plant
 		};
 	},
 	// Announce message via Garden live region
@@ -2752,6 +2861,7 @@ Game.registerMod("nvda accessibility", {
 	enhanceStockMarketMinigame: function() {
 		var MOD = this, mkt = Game.Objects['Bank'] && Game.Objects['Bank'].minigame;
 		if (!mkt) return;
+		MOD.wrapStockMarketFunctions();
 		// Enhance the minigame header
 		MOD.enhanceMinigameHeader(Game.Objects['Bank'], 'Stock Market', mkt);
 		// Enhance each stock row
@@ -2794,23 +2904,67 @@ Game.registerMod("nvda accessibility", {
 				}
 			}
 			// Enhance buy/sell buttons by class and ID
+			var price = mkt.getGoodPrice(good);
+			var overhead = 1 + 0.01 * (20 * Math.pow(0.95, mkt.brokers));
+			var spaceLeft = maxStock - good.stock;
 			r.querySelectorAll('.bankButton').forEach(function(btn) {
 				var btnId = btn.id || '';
 				var suffixMatch = btnId.match(/bankGood-\d+_(.*)/);
 				if (!suffixMatch) return;
 				var suffix = suffixMatch[1];
 				var isSell = suffix.charAt(0) === '-';
-				var action, qty;
+				var label;
 				if (isSell) {
-					action = 'Sell';
 					var sellPart = suffix.substring(1);
-					qty = sellPart === 'All' ? 'all' : sellPart;
+					var sellQty;
+					if (sellPart === 'All') {
+						sellQty = good.stock;
+						if (sellQty > 0) {
+							var revenue = Game.cookiesPsRawHighest * price * sellQty;
+							label = 'Sell all ' + goodName + ', ' + sellQty + ' shares, earns ' + Beautify(revenue) + ' cookies';
+						} else {
+							label = 'Sell all ' + goodName + ', no shares owned';
+						}
+					} else {
+						sellQty = parseInt(sellPart, 10);
+						var actualSellQty = Math.min(sellQty, good.stock);
+						if (actualSellQty > 0) {
+							var revenue = Game.cookiesPsRawHighest * price * actualSellQty;
+							label = 'Sell ' + sellPart + ' ' + goodName + ', earns ' + Beautify(revenue) + ' cookies';
+						} else {
+							label = 'Sell ' + sellPart + ' ' + goodName + ', no shares owned';
+						}
+					}
+					if (good.last === 1) label += ', unavailable this tick';
 				} else {
-					action = 'Buy';
-					qty = suffix === 'Max' ? 'maximum' : suffix;
+					var costPerUnit = Game.cookiesPsRawHighest * price * overhead;
+					if (suffix === 'Max') {
+						var affordable = costPerUnit > 0 ? Math.floor(Game.cookies / costPerUnit) : 0;
+						var buyQty = Math.min(affordable, spaceLeft);
+						if (buyQty > 0) {
+							var cost = costPerUnit * buyQty;
+							label = 'Buy maximum ' + goodName + ', ' + buyQty + ' shares, costs ' + Beautify(cost) + ' cookies';
+						} else if (spaceLeft <= 0) {
+							label = 'Buy maximum ' + goodName + ', warehouse full';
+						} else {
+							label = 'Buy maximum ' + goodName + ', cannot afford';
+						}
+					} else {
+						var buyQty = parseInt(suffix, 10);
+						var actualBuyQty = Math.min(buyQty, spaceLeft);
+						if (actualBuyQty > 0 && Game.cookies >= costPerUnit * actualBuyQty) {
+							var cost = costPerUnit * actualBuyQty;
+							label = 'Buy ' + suffix + ' ' + goodName + ', costs ' + Beautify(cost) + ' cookies';
+						} else if (spaceLeft <= 0) {
+							label = 'Buy ' + suffix + ' ' + goodName + ', warehouse full';
+						} else {
+							label = 'Buy ' + suffix + ' ' + goodName + ', costs ' + Beautify(costPerUnit * actualBuyQty) + ' cookies, cannot afford';
+						}
+					}
+					if (good.last === 2) label += ', unavailable this tick';
 				}
-				var label = action + ' ' + qty + ' ' + goodName;
 				MOD.setAttributeIfChanged(btn, 'aria-label', label);
+				btn.removeAttribute('aria-hidden');
 				btn.setAttribute('role', 'button');
 				btn.setAttribute('tabindex', '0');
 				if (!btn.dataset.a11yEnhanced) {
@@ -2821,15 +2975,46 @@ Game.registerMod("nvda accessibility", {
 				}
 			});
 		});
+		// Enhance profit display in header
+		var bankBalance = l('bankBalance');
+		if (bankBalance) {
+			var profitLabel;
+			if (mkt.profit > 0) profitLabel = 'Profit, $' + Beautify(mkt.profit, 2);
+			else if (mkt.profit < 0) profitLabel = 'Loss, $' + Beautify(Math.abs(mkt.profit), 2);
+			else profitLabel = 'Break even';
+			MOD.setAttributeIfChanged(bankBalance, 'aria-label', profitLabel);
+		}
+		var bankHeader = l('bankHeader');
+		if (bankHeader) {
+			var summaryId = 'a11y-stock-summary';
+			var summary = l(summaryId);
+			if (!summary) {
+				summary = document.createElement('div');
+				summary.id = summaryId;
+				summary.style.cssText = 'position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;';
+				summary.setAttribute('tabindex', '0');
+				bankHeader.appendChild(summary);
+			}
+			var overheadPct = Beautify(20 * Math.pow(0.95, mkt.brokers), 2);
+			var profitText;
+			if (mkt.profit > 0) profitText = 'Profit $' + Beautify(mkt.profit, 2);
+			else if (mkt.profit < 0) profitText = 'Loss $' + Beautify(Math.abs(mkt.profit), 2);
+			else profitText = 'Break even';
+			MOD.setTextIfChanged(summary, 'Stock Market: ' + profitText + '. Overhead: ' + overheadPct + '%');
+		}
 		// Enhance office upgrade button
 		var officeUpgradeBtn = l('bankOfficeUpgrade');
 		if (officeUpgradeBtn) {
 			var office = mkt.offices[mkt.officeLevel];
 			if (office && office.cost) {
+				var officeDisabled = officeUpgradeBtn.classList.contains('bankButtonOff');
 				var upgradeLabel = 'Upgrade office from ' + office.name + ', costs ' + office.cost[0] + ' cursors, requires level ' + office.cost[1] + ' cursors';
+				if (officeDisabled) upgradeLabel += ', unavailable';
 				MOD.setAttributeIfChanged(officeUpgradeBtn, 'aria-label', upgradeLabel);
+				MOD.setAttributeIfChanged(officeUpgradeBtn, 'aria-disabled', officeDisabled ? 'true' : 'false');
 			} else if (office) {
 				MOD.setAttributeIfChanged(officeUpgradeBtn, 'aria-label', office.name + ', fully upgraded');
+				MOD.setAttributeIfChanged(officeUpgradeBtn, 'aria-disabled', 'true');
 			}
 			officeUpgradeBtn.setAttribute('role', 'button');
 			officeUpgradeBtn.setAttribute('tabindex', '0');
@@ -2843,8 +3028,19 @@ Game.registerMod("nvda accessibility", {
 		// Enhance hire broker button
 		var hireBrokerBtn = l('bankBrokersBuy');
 		if (hireBrokerBtn) {
+			var brokerDisabled = hireBrokerBtn.classList.contains('bankButtonOff');
 			var brokerLabel = 'Hire broker, ' + mkt.brokers + ' of ' + mkt.getMaxBrokers() + ' brokers, overhead ' + Beautify(20 * Math.pow(0.95, mkt.brokers), 2) + '%';
+			var brokerPrice = mkt.getBrokerPrice();
+			brokerLabel += ', costs ' + Beautify(brokerPrice) + ' cookies';
+			if (brokerDisabled) {
+				if (mkt.brokers >= mkt.getMaxBrokers()) {
+					brokerLabel += ', maximum brokers hired';
+				} else {
+					brokerLabel += ', cannot afford';
+				}
+			}
 			MOD.setAttributeIfChanged(hireBrokerBtn, 'aria-label', brokerLabel);
+			MOD.setAttributeIfChanged(hireBrokerBtn, 'aria-disabled', brokerDisabled ? 'true' : 'false');
 			hireBrokerBtn.setAttribute('role', 'button');
 			hireBrokerBtn.setAttribute('tabindex', '0');
 			if (!hireBrokerBtn.dataset.a11yEnhanced) {
@@ -2860,8 +3056,11 @@ Game.registerMod("nvda accessibility", {
 			if (loanBtn && loanBtn.style.display !== 'none') {
 				var loanType = mkt.loanTypes[loanId - 1];
 				var isActive = Game.hasBuff('Loan ' + loanId) || Game.hasBuff('Loan ' + loanId + ' (interest)');
+				var loanDisabled = loanBtn.classList.contains('bankButtonOff');
 				var loanLabel = isActive ? loanType[0] + ', active' : 'Take out ' + loanType[0];
+				if (loanDisabled && !isActive) loanLabel += ', unavailable';
 				MOD.setAttributeIfChanged(loanBtn, 'aria-label', loanLabel);
+				MOD.setAttributeIfChanged(loanBtn, 'aria-disabled', loanDisabled ? 'true' : 'false');
 				loanBtn.setAttribute('role', 'button');
 				loanBtn.setAttribute('tabindex', '0');
 				if (!loanBtn.dataset.a11yEnhanced) {
@@ -2874,6 +3073,66 @@ Game.registerMod("nvda accessibility", {
 				}
 			}
 		}
+	},
+	wrapStockMarketFunctions: function() {
+		var MOD = this;
+		if (MOD.stockMarketWrapped) return;
+		var mkt = Game.Objects['Bank'] && Game.Objects['Bank'].minigame;
+		if (!mkt) return;
+		MOD.stockMarketWrapped = true;
+
+		var origBuyGood = mkt.buyGood;
+		mkt.buyGood = function(id, n) {
+			var me = mkt.goodsById[id];
+			if (!me) return origBuyGood.apply(this, arguments);
+			var stockBefore = me.stock;
+			var result = origBuyGood.apply(this, arguments);
+			var goodName = me.name.replace('%1', Game.bakeryName);
+			if (result) {
+				var bought = me.stock - stockBefore;
+				var price = mkt.getGoodPrice(me);
+				var overhead = 1 + 0.01 * (20 * Math.pow(0.95, mkt.brokers));
+				var cost = Game.cookiesPsRawHighest * price * overhead * bought;
+				MOD.announce('Bought ' + bought + ' ' + goodName + ' for ' + Beautify(cost) + ' cookies. Now own ' + me.stock + ' of ' + mkt.getGoodMaxStock(me));
+			} else {
+				var reason;
+				if (me.last === 2) {
+					reason = 'Cannot buy and sell in the same tick';
+				} else if (me.stock >= mkt.getGoodMaxStock(me)) {
+					reason = 'Warehouse full';
+				} else {
+					reason = 'Cannot afford';
+				}
+				MOD.announce(goodName + ' purchase failed. ' + reason);
+			}
+			return result;
+		};
+
+		var origSellGood = mkt.sellGood;
+		mkt.sellGood = function(id, n) {
+			var me = mkt.goodsById[id];
+			if (!me) return origSellGood.apply(this, arguments);
+			var stockBefore = me.stock;
+			var result = origSellGood.apply(this, arguments);
+			var goodName = me.name.replace('%1', Game.bakeryName);
+			if (result) {
+				var sold = stockBefore - me.stock;
+				var price = mkt.getGoodPrice(me);
+				var revenue = Game.cookiesPsRawHighest * price * sold;
+				MOD.announce('Sold ' + sold + ' ' + goodName + ' for ' + Beautify(revenue) + ' cookies. Now own ' + me.stock + ' of ' + mkt.getGoodMaxStock(me));
+			} else {
+				var reason;
+				if (me.last === 1) {
+					reason = 'Cannot buy and sell in the same tick';
+				} else if (me.stock <= 0) {
+					reason = 'No shares owned';
+				} else {
+					reason = 'Cannot sell';
+				}
+				MOD.announce(goodName + ' sale failed. ' + reason);
+			}
+			return result;
+		};
 	},
 	enhanceMainUI: function() {
 		var MOD = this;
@@ -3243,6 +3502,112 @@ Game.registerMod("nvda accessibility", {
 				crate.parentNode.insertBefore(infoDiv, crate.nextSibling);
 			} else {
 				crate.parentNode.appendChild(infoDiv);
+			}
+		}
+	},
+	ensureSeedInfoText: function(g, plant, seedEl) {
+		var MOD = this;
+		if (!plant || !seedEl) return;
+		var seedId = plant.id;
+		var textId = 'a11y-garden-seed-info-' + seedId;
+		var existingText = l(textId);
+		var infoText = '';
+
+		if (!plant.unlocked) {
+			// Locked seeds are consolidated into a single summary element
+			if (existingText) existingText.parentNode.removeChild(existingText);
+			return;
+		} else {
+			var lines = [];
+			// Time until affordable (only when not affordable — cost is already on the button)
+			if (plant.plantable !== false && !Game.Has('Turbo-charged soil')) {
+				var cost = g.getCost(plant);
+				if (!g.canPlant(plant)) {
+					lines.push('Affordable in ' + MOD.getTimeUntilAfford(cost) + '.');
+				}
+			}
+
+			// Effects — most important info
+			if (plant.effsStr) {
+				lines.push('Effects: ' + MOD.stripHtml(plant.effsStr) + '.');
+			}
+
+			// Maturation and lifespan
+			var dragonBoost = 1 / (1 + 0.05 * Game.auraMult('Supreme Intellect'));
+			var avgTick = plant.ageTick + plant.ageTickR / 2;
+			var matFrames = ((100 / avgTick) * (plant.mature / 100) * dragonBoost * g.stepT) * 30;
+			var matTicks = Math.ceil((100 / (avgTick / dragonBoost)) * (plant.mature / 100));
+			var matLine = 'Maturation: ' + Game.sayTime(matFrames, -1) + ' (' + matTicks + ' tick' + (matTicks !== 1 ? 's' : '') + ').';
+			if (!plant.immortal) {
+				var lifeFrames = ((100 / avgTick) * dragonBoost * g.stepT) * 30;
+				var lifeTicks = Math.ceil(100 / (avgTick / dragonBoost));
+				matLine += ' Lifespan: ' + Game.sayTime(lifeFrames, -1) + ' (' + lifeTicks + ' tick' + (lifeTicks !== 1 ? 's' : '') + ').';
+			} else {
+				matLine += ' Immortal.';
+			}
+			lines.push(matLine);
+
+			// Type
+			if (plant.weed) lines.push('Type: Weed.');
+			if (plant.fungus) lines.push('Type: Fungus.');
+
+			// Details
+			if (plant.detailsStr) {
+				lines.push('Details: ' + MOD.stripHtml(plant.detailsStr) + '.');
+			}
+
+			// Mutations
+			if (plant.children && plant.children.length > 0) {
+				var unlockedChildren = [];
+				var lockedCount = 0;
+				for (var i = 0; i < plant.children.length; i++) {
+					var childKey = plant.children[i];
+					var childPlant = g.plants[childKey];
+					if (childPlant) {
+						if (childPlant.unlocked) {
+							unlockedChildren.push(childPlant.name);
+						} else {
+							lockedCount++;
+						}
+					}
+				}
+				if (unlockedChildren.length > 0 || lockedCount > 0) {
+					var mutStr = 'Mutations: ';
+					if (unlockedChildren.length > 0) {
+						mutStr += unlockedChildren.join(', ');
+					}
+					if (lockedCount > 0) {
+						if (unlockedChildren.length > 0) mutStr += ', ';
+						mutStr += lockedCount + ' locked';
+					}
+					lines.push(mutStr + '.');
+				}
+			}
+
+			// Flavor quote
+			if (plant.q) {
+				lines.push('"' + MOD.stripHtml(plant.q) + '"');
+			}
+
+			infoText = lines.join(' ');
+		}
+
+		if (existingText) {
+			existingText.textContent = infoText;
+			existingText.setAttribute('aria-label', infoText);
+		} else {
+			var infoDiv = document.createElement('div');
+			infoDiv.id = textId;
+			infoDiv.className = 'a11y-seed-info';
+			infoDiv.style.cssText = 'display:block;padding:6px;margin:4px 0;font-size:12px;color:#ccc;background:#1a1a1a;border:1px solid #444;';
+			infoDiv.setAttribute('tabindex', '0');
+			infoDiv.setAttribute('role', 'note');
+			infoDiv.setAttribute('aria-label', infoText);
+			infoDiv.textContent = infoText;
+			if (seedEl.nextSibling) {
+				seedEl.parentNode.insertBefore(infoDiv, seedEl.nextSibling);
+			} else {
+				seedEl.parentNode.appendChild(infoDiv);
 			}
 		}
 	},
@@ -4911,6 +5276,7 @@ Game.registerMod("nvda accessibility", {
 			if (!section) return;
 			section.querySelectorAll('div, span, button').forEach(function(el) {
 				if (el.getAttribute('aria-hidden') === 'true') return;
+				if (el.getAttribute('role') === 'button') return;
 				if (el.id === 'lumps' || el.closest('#lumps')) return; // Don't hide sugar lump elements
 				var text = (el.textContent || '').trim();
 				var label = (el.getAttribute('aria-label') || '').toLowerCase();
