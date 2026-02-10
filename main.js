@@ -60,6 +60,8 @@ Game.registerMod("nvda accessibility", {
 		MOD.selectedAuraForSlot = -1;
 		MOD.initRetriesComplete = false;
 		MOD.minigameInitDone = {};
+		MOD.gardenBuildPanelWrapped = false;
+		MOD.gardenBuildPlotWrapped = false;
 		MOD.highestOwnedBuildingId = -1;
 		setTimeout(function() {
 			MOD.enhanceMainUI();
@@ -101,6 +103,8 @@ Game.registerMod("nvda accessibility", {
 		MOD.lastStoreRefresh = Game.storeToRefresh;
 		Game.registerHook('reset', function(hard) {
 			MOD.minigameInitDone = {};
+			MOD.gardenBuildPanelWrapped = false;
+			MOD.gardenBuildPlotWrapped = false;
 			MOD.initRetriesComplete = false;
 			var milkPanel = l('a11yMilkSelectorPanel');
 			if (milkPanel) milkPanel.remove();
@@ -163,8 +167,13 @@ Game.registerMod("nvda accessibility", {
 				} else if (hasMinigame && level < 1) {
 					MOD.setAttributeIfChanged(mgBtn, 'aria-label', 'Level up ' + bldName + ' to unlock ' + (mgName || bld.minigameName || 'minigame') + ' (1 sugar lump)');
 				}
-				mgBtn.setAttribute('role', 'button');
-				mgBtn.setAttribute('tabindex', '0');
+				if (hasMinigame) {
+					mgBtn.setAttribute('role', 'button');
+					mgBtn.setAttribute('tabindex', '0');
+				} else {
+					mgBtn.setAttribute('aria-hidden', 'true');
+					mgBtn.setAttribute('tabindex', '-1');
+				}
 			}
 		}
 		// Also label Special Tabs
@@ -1519,11 +1528,37 @@ Game.registerMod("nvda accessibility", {
 		// Don't do anything if garden isn't ready
 		if (!MOD.gardenReady()) return;
 		var g = Game.Objects['Farm'].minigame;
+		// Wrap buildPanel/buildPlot to re-label elements after DOM rebuilds
+		if (!MOD.gardenBuildPanelWrapped) {
+			MOD.gardenBuildPanelWrapped = true;
+			var origBuildPanel = g.buildPanel;
+			g.buildPanel = function() {
+				var result = origBuildPanel.apply(this, arguments);
+				setTimeout(function() {
+					if (MOD.gardenReady()) {
+						MOD.labelOriginalGardenElements(Game.Objects['Farm'].minigame);
+					}
+				}, 0);
+				return result;
+			};
+		}
+		if (!MOD.gardenBuildPlotWrapped) {
+			MOD.gardenBuildPlotWrapped = true;
+			var origBuildPlot = g.buildPlot;
+			g.buildPlot = function() {
+				var result = origBuildPlot.apply(this, arguments);
+				setTimeout(function() {
+					if (MOD.gardenReady()) {
+						MOD.labelOriginalGardenElements(Game.Objects['Farm'].minigame);
+					}
+				}, 0);
+				return result;
+			};
+		}
 		// Enhance the minigame header first
 		MOD.enhanceMinigameHeader(Game.Objects['Farm'], 'Garden', g);
 		// Label original garden elements directly
 		MOD.labelOriginalGardenElements(g);
-		// Note: Garden accessible panel removed - using virtual grid from garden.js instead
 	},
 	labelSingleGardenTile: function(g, x, y) {
 		var tile = l('gardenTile-' + x + '-' + y);
@@ -1559,14 +1594,14 @@ Game.registerMod("nvda accessibility", {
 				tile.setAttribute('tabindex', '0');
 				if (!tile.getAttribute('data-a11y-kb')) {
 					tile.setAttribute('data-a11y-kb', '1');
-					(function(el) {
-						el.addEventListener('keydown', function(e) {
+					(function(tileX, tileY) {
+						tile.addEventListener('keydown', function(e) {
 							if (e.key === 'Enter' || e.key === ' ') {
 								e.preventDefault();
-								el.click();
+								MOD.handleTileActivation(tileX, tileY);
 							}
 						});
-					})(tile);
+					})(x, y);
 				}
 				if (!tile.getAttribute('data-a11y-click')) {
 					tile.setAttribute('data-a11y-click', '1');
@@ -1610,14 +1645,17 @@ Game.registerMod("nvda accessibility", {
 					});
 				})(seed);
 			}
-			// Add click handler for immediate "Selected" announcement
+			// Add click handler for immediate "Selected"/"Deselected" announcement
 			if (!seed.getAttribute('data-a11y-click')) {
 				seed.setAttribute('data-a11y-click', '1');
 				(function(el, plantName, plantId) {
 					el.addEventListener('click', function() {
 						var g = Game.Objects['Farm'].minigame;
-						if (g && g.seedSelected == plantId) {
+						if (!g) return;
+						if (g.seedSelected == plantId) {
 							MOD.gardenAnnounce('Selected ' + plantName);
+						} else if (g.seedSelected < 0) {
+							MOD.gardenAnnounce('Deselected ' + plantName);
 						}
 					});
 				})(seed, plant.name, parseInt(seedId));
@@ -2194,14 +2232,40 @@ Game.registerMod("nvda accessibility", {
 			MOD.gardenAnnounce('Invalid seed selected');
 			return;
 		}
-		// Plant the seed
+		// Check affordability before planting for specific feedback
+		if (!g.canPlant(seed)) {
+			MOD.gardenAnnounce('Not enough cookies to plant ' + seed.name);
+			return;
+		}
 		var result = g.useTool(g.seedSelected, x, y);
 		if (result) {
 			MOD.gardenAnnounce('Planted ' + seed.name + ' at R' + (y+1) + ', C' + (x+1));
 			MOD.updatePlotButton(x, y);
 		} else {
-			MOD.gardenAnnounce('Cannot plant ' + seed.name + '. Not enough cookies or tile is locked');
+			MOD.gardenAnnounce('Cannot plant ' + seed.name + ' here');
 		}
+	},
+	// Handle tile activation via keyboard (wraps plantAtPlot with deselection announcement)
+	handleTileActivation: function(x, y) {
+		var MOD = this;
+		if (!MOD.gardenReady()) return;
+		var g = Game.Objects['Farm'].minigame;
+		var seedBefore = g.seedSelected;
+		var seedName = (seedBefore >= 0 && g.plantsById[seedBefore])
+			? g.plantsById[seedBefore].name : '';
+		MOD.plantAtPlot(x, y);
+		// Announce seed deselection (game resets seedSelected after planting unless Shift held)
+		if (seedBefore >= 0 && g.seedSelected < 0) {
+			setTimeout(function() {
+				MOD.gardenAnnounce(seedName + ' seed deselected. Hold Shift while planting to keep seed selected');
+			}, 800);
+		}
+		// Update tile label after planting/harvesting
+		setTimeout(function() {
+			if (MOD.gardenReady()) {
+				MOD.labelSingleGardenTile(Game.Objects['Farm'].minigame, x, y);
+			}
+		}, 100);
 	},
 	// Get list of harvestable (mature) plants with coordinates
 	getHarvestablePlants: function(g) {
@@ -3746,7 +3810,7 @@ Game.registerMod("nvda accessibility", {
 			}
 			// Update Garden panel when Farm minigame is visible
 			if (MOD.gardenReady() && Game.Objects['Farm'].onMinigame) {
-				if (!l('a11yGardenPanel')) {
+				if (!MOD.gardenBuildPanelWrapped) {
 					MOD.enhanceGardenMinigame();
 				}
 				MOD.updateGardenPanelStatus();
@@ -4675,6 +4739,50 @@ Game.registerMod("nvda accessibility", {
 			'Wizard tower': 'Grimoire',
 			'Bank': 'Stock Market'
 		};
+		// Create a visually-hidden Cursor row in #rows so the Cursor level-up button
+		// appears alongside all other building level-up buttons.
+		// The game places the Cursor's productLevel0 in #sectionLeftExtra (below the big cookie),
+		// making it impossible for screen reader users to find when navigating building rows.
+		var cursorBld = Game.ObjectsById[0];
+		var rowsContainer = l('rows');
+		if (cursorBld && rowsContainer && !l('a11yCursorRow')) {
+			var cursorRow = document.createElement('div');
+			cursorRow.id = 'a11yCursorRow';
+			var cursorBtn = document.createElement('div');
+			cursorBtn.id = 'a11yCursorLevelBtn';
+			cursorBtn.style.cssText = 'position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;';
+			cursorBtn.setAttribute('role', 'button');
+			cursorBtn.setAttribute('tabindex', '0');
+			cursorBtn.onclick = function() { Game.ObjectsById[0].levelUp(); };
+			cursorBtn.addEventListener('keydown', function(e) {
+				if (e.key === 'Enter' || e.key === ' ') {
+					e.preventDefault();
+					Game.ObjectsById[0].levelUp();
+				}
+			});
+			cursorRow.appendChild(cursorBtn);
+			rowsContainer.insertBefore(cursorRow, rowsContainer.firstChild);
+		}
+		// Update the Cursor level button label
+		if (cursorBld) {
+			var cursorLevelBtn = l('a11yCursorLevelBtn');
+			if (cursorLevelBtn) {
+				var cursorLevel = parseInt(cursorBld.level) || 0;
+				var cursorLumpCost = cursorLevel + 1;
+				MOD.setAttributeIfChanged(cursorLevelBtn, 'aria-label', 'Cursor Level ' + cursorLevel + '. Click to upgrade for ' + cursorLumpCost + ' sugar lump' + (cursorLumpCost > 1 ? 's' : ''));
+			}
+			// Hide the original productLevel0 in sectionLeftExtra from screen readers
+			var origCursorLevel = l('productLevel0');
+			if (origCursorLevel) {
+				origCursorLevel.setAttribute('aria-hidden', 'true');
+				origCursorLevel.setAttribute('tabindex', '-1');
+			}
+			var origCursorMgBtn = l('productMinigameButton0');
+			if (origCursorMgBtn) {
+				origCursorMgBtn.setAttribute('aria-hidden', 'true');
+				origCursorMgBtn.setAttribute('tabindex', '-1');
+			}
+		}
 		// Label building rows in the game area (left section)
 		// These are the rows that show building sprites and have level/minigame buttons
 		// Use Game.ObjectsN for proper iteration count
@@ -4757,8 +4865,13 @@ Game.registerMod("nvda accessibility", {
 				} else if (hasMinigame) {
 					MOD.setAttributeIfChanged(productMgBtn, 'aria-label', minigameName + ' (unlock at level 1)');
 				}
-				productMgBtn.setAttribute('role', 'button');
-				productMgBtn.setAttribute('tabindex', '0');
+				if (hasMinigame) {
+					productMgBtn.setAttribute('role', 'button');
+					productMgBtn.setAttribute('tabindex', '0');
+				} else {
+					productMgBtn.setAttribute('aria-hidden', 'true');
+					productMgBtn.setAttribute('tabindex', '-1');
+				}
 			}
 		}
 		// Also label any standalone level elements in the left section
