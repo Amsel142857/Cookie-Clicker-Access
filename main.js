@@ -2907,10 +2907,17 @@ Game.registerMod("nvda accessibility", {
 				heading.style.cssText = 'position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;';
 				r.insertBefore(heading, r.firstChild);
 			}
+			var delta = mkt.goodDelta(good.id);
 			var trend = good.d > 0 ? 'Rising' : (good.d < 0 ? 'Falling' : 'Stable');
+			trend += ' ' + (delta >= 0 ? '+' : '') + delta + '%';
 			var maxStock = mkt.getGoodMaxStock(good);
 			var headingText = goodName + ', ' + good.stock + ' of ' + maxStock + ' shares, $' + Beautify(mkt.getGoodPrice(good), 2) + ', ' + trend;
 			MOD.setTextIfChanged(heading, headingText);
+			// Stock info div with value and warehouse details
+			var goodPrice = mkt.getGoodPrice(good);
+			var stockValue = good.stock > 0 ? Beautify(Game.cookiesPsRawHighest * goodPrice * good.stock) : '0';
+			var stockInfoText = 'Value of held stock: ' + stockValue + ' cookies. Warehouse: ' + good.stock + ' of ' + maxStock + '. Increase storage with office upgrades and more ' + good.building.plural + ', plus 10 per ' + good.building.single + ' level (currently +' + (good.building.level * 10) + '). Average worth depends on ' + good.building.plural + ' and Bank level';
+			MOD.ensureInfoNote('a11y-stock-info-' + id, stockInfoText, heading);
 			// Aria-hide visual-only .bankSymbol elements
 			r.querySelectorAll('.bankSymbol').forEach(function(sym) {
 				sym.setAttribute('aria-hidden', 'true');
@@ -3033,11 +3040,8 @@ Game.registerMod("nvda accessibility", {
 		if (officeUpgradeBtn) {
 			var office = mkt.offices[mkt.officeLevel];
 			if (office && office.cost) {
-				var officeDisabled = officeUpgradeBtn.classList.contains('bankButtonOff');
 				var upgradeLabel = 'Upgrade office from ' + office.name + ', costs ' + office.cost[0] + ' cursors, requires level ' + office.cost[1] + ' cursors';
-				if (officeDisabled) upgradeLabel += ', unavailable';
 				MOD.setAttributeIfChanged(officeUpgradeBtn, 'aria-label', upgradeLabel);
-				MOD.setAttributeIfChanged(officeUpgradeBtn, 'aria-disabled', officeDisabled ? 'true' : 'false');
 			} else if (office) {
 				MOD.setAttributeIfChanged(officeUpgradeBtn, 'aria-label', office.name + ', fully upgraded');
 				MOD.setAttributeIfChanged(officeUpgradeBtn, 'aria-disabled', 'true');
@@ -3050,6 +3054,10 @@ Game.registerMod("nvda accessibility", {
 					if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); officeUpgradeBtn.click(); }
 				});
 			}
+			// Office info div with description
+			var officeDesc = office ? MOD.stripHtml(office.desc || '') : '';
+			var officeInfoText = 'Office level ' + (mkt.officeLevel + 1) + ': ' + (office ? office.name : 'Unknown') + '. ' + officeDesc;
+			MOD.ensureInfoNote('a11y-office-info', officeInfoText, officeUpgradeBtn);
 		}
 		// Enhance hire broker button
 		var hireBrokerBtn = l('bankBrokersBuy');
@@ -3075,6 +3083,10 @@ Game.registerMod("nvda accessibility", {
 					if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); hireBrokerBtn.click(); }
 				});
 			}
+			// Broker info div with mechanics explanation
+			var brokerOverheadPct = Beautify(20 * Math.pow(0.95, mkt.brokers), 2);
+			var brokerInfoText = 'Buying goods incurs overhead of +20%. Each broker reduces this by 5%. Current overhead: ' + brokerOverheadPct + '%. Max brokers: ' + mkt.getMaxBrokers() + ' (highest grandmas owned divided by 10, plus grandma level). Broker cost: 20 minutes of CpS';
+			MOD.ensureInfoNote('a11y-broker-info', brokerInfoText, hireBrokerBtn);
 		}
 		// Enhance loan buttons
 		for (var loanId = 1; loanId <= 3; loanId++) {
@@ -3097,6 +3109,16 @@ Game.registerMod("nvda accessibility", {
 						});
 					})(loanBtn);
 				}
+				// Loan info div with full mechanics
+				// loanType: [name, mult, duration, paybackMult, paybackDuration, downpayment%, quote]
+				var boostPct = '+' + Math.round((loanType[1] - 1) * 100) + '%';
+				var boostDuration = Game.sayTime(60 * loanType[2] * Game.fps);
+				var paybackPct = Math.round((loanType[3] - 1) * 100) + '%';
+				var paybackDuration = Game.sayTime(60 * loanType[4] * Game.fps);
+				var downpayment = Beautify(Game.cookies * loanType[5]);
+				var downpaymentPct = loanType[5] * 100;
+				var loanInfoText = boostPct + ' CpS for ' + boostDuration + ', then ' + paybackPct + ' CpS for ' + paybackDuration + '. Downpayment: ' + downpayment + ' cookies (' + downpaymentPct + '% of bank)';
+				MOD.ensureInfoNote('a11y-loan-info-' + loanId, loanInfoText, loanBtn);
 			}
 		}
 	},
@@ -3528,6 +3550,26 @@ Game.registerMod("nvda accessibility", {
 				crate.parentNode.insertBefore(infoDiv, crate.nextSibling);
 			} else {
 				crate.parentNode.appendChild(infoDiv);
+			}
+		}
+	},
+	ensureInfoNote: function(id, text, afterEl) {
+		var existing = l(id);
+		if (existing) {
+			this.setTextIfChanged(existing, text);
+			this.setAttributeIfChanged(existing, 'aria-label', text);
+		} else if (afterEl) {
+			var div = document.createElement('div');
+			div.id = id;
+			div.setAttribute('tabindex', '0');
+			div.setAttribute('role', 'note');
+			div.setAttribute('aria-label', text);
+			div.textContent = text;
+			div.style.cssText = 'position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;';
+			if (afterEl.nextSibling) {
+				afterEl.parentNode.insertBefore(div, afterEl.nextSibling);
+			} else {
+				afterEl.parentNode.appendChild(div);
 			}
 		}
 	},
