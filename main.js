@@ -96,9 +96,10 @@ Game.registerMod("nvda accessibility", {
 		Game.registerHook('buy', function() {
 			// Immediate refresh on purchase
 			MOD.enhanceUpgradeShop();
+			MOD.populateProductLabels();
 			// Also refresh again shortly after in case store updates
-			setTimeout(function() { MOD.enhanceUpgradeShop(); }, 100);
-			setTimeout(function() { MOD.enhanceUpgradeShop(); }, 500);
+			setTimeout(function() { MOD.enhanceUpgradeShop(); MOD.populateProductLabels(); }, 100);
+			setTimeout(function() { MOD.enhanceUpgradeShop(); MOD.populateProductLabels(); }, 500);
 		});
 		// Also track store refresh flag
 		MOD.lastStoreRefresh = Game.storeToRefresh;
@@ -1330,8 +1331,10 @@ Game.registerMod("nvda accessibility", {
 		// Buy/Sell toggles
 		var storeBulkBuy = l('storeBulkBuy');
 		var storeBulkSell = l('storeBulkSell');
+		var buyLabel = (Game.buyMode === 1 ? 'Selected, ' : '') + 'Buy mode';
+		var sellLabel = (Game.buyMode === -1 ? 'Selected, ' : '') + 'Sell mode';
 		if (storeBulkBuy) {
-			MOD.setAttributeIfChanged(storeBulkBuy, 'aria-label', 'Buy mode - purchase buildings');
+			MOD.setAttributeIfChanged(storeBulkBuy, 'aria-label', buyLabel);
 			storeBulkBuy.setAttribute('role', 'button');
 			storeBulkBuy.setAttribute('tabindex', '0');
 			if (!storeBulkBuy.dataset.a11yEnhanced) {
@@ -1339,10 +1342,13 @@ Game.registerMod("nvda accessibility", {
 				storeBulkBuy.addEventListener('keydown', function(e) {
 					if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); storeBulkBuy.click(); }
 				});
+				storeBulkBuy.addEventListener('click', function() {
+					MOD.announce('Selected, Buy mode');
+				});
 			}
 		}
 		if (storeBulkSell) {
-			MOD.setAttributeIfChanged(storeBulkSell, 'aria-label', 'Sell mode - sell buildings');
+			MOD.setAttributeIfChanged(storeBulkSell, 'aria-label', sellLabel);
 			storeBulkSell.setAttribute('role', 'button');
 			storeBulkSell.setAttribute('tabindex', '0');
 			if (!storeBulkSell.dataset.a11yEnhanced) {
@@ -1350,25 +1356,33 @@ Game.registerMod("nvda accessibility", {
 				storeBulkSell.addEventListener('keydown', function(e) {
 					if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); storeBulkSell.click(); }
 				});
+				storeBulkSell.addEventListener('click', function() {
+					MOD.announce('Selected, Sell mode');
+				});
 			}
 		}
 		// Amount multipliers (1, 10, 100, Max)
+		var buyBulk = Game.buyBulk;
 		var amounts = [
-			{ id: 'storeBulk1', label: 'Buy or sell 1 at a time' },
-			{ id: 'storeBulk10', label: 'Buy or sell 10 at a time' },
-			{ id: 'storeBulk100', label: 'Buy or sell 100 at a time' },
-			{ id: 'storeBulkMax', label: 'Buy or sell maximum amount' }
+			{ id: 'storeBulk1', label: 'Buy or sell 1 at a time', value: 1 },
+			{ id: 'storeBulk10', label: 'Buy or sell 10 at a time', value: 10 },
+			{ id: 'storeBulk100', label: 'Buy or sell 100 at a time', value: 100 },
+			{ id: 'storeBulkMax', label: 'Buy or sell maximum amount', value: -1 }
 		];
 		amounts.forEach(function(amt) {
 			var btn = l(amt.id);
 			if (btn) {
-				MOD.setAttributeIfChanged(btn, 'aria-label', amt.label);
+				var label = (buyBulk === amt.value ? 'Selected, ' : '') + amt.label;
+				MOD.setAttributeIfChanged(btn, 'aria-label', label);
 				btn.setAttribute('role', 'button');
 				btn.setAttribute('tabindex', '0');
 				if (!btn.dataset.a11yEnhanced) {
 					btn.dataset.a11yEnhanced = 'true';
 					btn.addEventListener('keydown', function(e) {
 						if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); btn.click(); }
+					});
+					btn.addEventListener('click', function() {
+						MOD.announce('Selected, ' + amt.label);
 					});
 				}
 			}
@@ -1874,13 +1888,17 @@ Game.registerMod("nvda accessibility", {
 			if (!soilEl.getAttribute('data-a11y-kb')) {
 				soilEl.setAttribute('data-a11y-kb', '1');
 				(function(el, id) {
+					el.addEventListener('click', function() {
+						var g = Game.Objects['Farm'].minigame;
+						if (g && g.nextSoil > Date.now()) {
+							var remaining = Game.sayTime((g.nextSoil - Date.now()) / 1000 * 30 + 30, -1);
+							MOD.announce('Can change soil in ' + remaining);
+						}
+					});
 					el.addEventListener('keydown', function(e) {
 						if (e.key === 'Enter' || e.key === ' ') {
 							e.preventDefault();
-							var g = Game.Objects['Farm'].minigame;
-							if (g && g.changeSoil) {
-								g.changeSoil(id);
-							}
+							el.click();
 						}
 					});
 				})(soilEl, soil.id);
@@ -1947,6 +1965,30 @@ Game.registerMod("nvda accessibility", {
 			}
 		}
 		plotHeading.textContent = plotText;
+
+		// Create tick timer info bar at top of garden
+		var gardenInfoBar = l('a11y-garden-info-bar');
+		var gardenContent = l('gardenContent');
+		if (gardenContent) {
+			if (!gardenInfoBar) {
+				gardenInfoBar = document.createElement('div');
+				gardenInfoBar.id = 'a11y-garden-info-bar';
+				gardenInfoBar.setAttribute('tabindex', '0');
+				gardenInfoBar.style.cssText = 'position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;';
+				gardenContent.insertBefore(gardenInfoBar, gardenContent.firstChild);
+			}
+			var tickText;
+			if (g.freeze) tickText = 'Garden is frozen. Unfreeze to resume.';
+			else tickText = 'Next tick in ' + Game.sayTime((g.nextStep - Date.now()) / 1000 * 30 + 30, -1);
+			MOD.setTextIfChanged(gardenInfoBar, tickText);
+		}
+		// Hide original tick timer from screen readers
+		var origNextTick = l('gardenNextTick');
+		if (origNextTick) origNextTick.setAttribute('aria-hidden', 'true');
+		// Create lump refill proxy button at top of garden
+		if (gardenInfoBar) {
+			MOD.createLumpRefillProxy('a11y-garden-lump-refill', 'gardenLumpRefill', 'Refill soil timer and trigger 1 growth tick with 3x spread and mutation', gardenInfoBar);
+		}
 	},
 	createGardenAccessiblePanel: function(g) {
 		var MOD = this;
@@ -1975,7 +2017,6 @@ Game.registerMod("nvda accessibility", {
 		// Create accessible panel
 		var panel = document.createElement('div');
 		panel.id = 'a11yGardenPanel';
-		panel.setAttribute('role', 'region');
 		panel.setAttribute('aria-labelledby', 'a11yGardenHeading');
 		panel.style.cssText = 'background:#1a2a1a;border:2px solid #4a4;padding:10px;margin:10px 0;';
 
@@ -2180,7 +2221,6 @@ Game.registerMod("nvda accessibility", {
 
 		panel = document.createElement('div');
 		panel.id = 'a11yGardenInfoPanel';
-		panel.setAttribute('role', 'region');
 		panel.setAttribute('aria-label', 'Garden Information. Press Escape to close.');
 		panel.style.cssText = 'background:#1a2a1a;border:2px solid #4a4;padding:15px;margin:10px 0;color:#cfc;font-size:13px;';
 
@@ -2193,12 +2233,6 @@ Game.registerMod("nvda accessibility", {
 			}
 		});
 
-		// Header
-		var heading = document.createElement('h3');
-		heading.textContent = 'Garden Information';
-		heading.style.cssText = 'margin:0 0 10px 0;color:#8f8;font-size:15px;';
-		panel.appendChild(heading);
-
 		// Current effects section
 		var effectsSection = document.createElement('div');
 		effectsSection.id = 'a11yGardenInfoEffects';
@@ -2207,10 +2241,10 @@ Game.registerMod("nvda accessibility", {
 
 		// Tips section
 		var tipsSection = document.createElement('div');
-		tipsSection.setAttribute('tabindex', '0');
 		tipsSection.style.cssText = 'padding:10px;background:#0a1a0a;border:1px solid #3a3;';
-		var tipsHeading = document.createElement('h4');
-		tipsHeading.textContent = 'Tips';
+		var tipsHeading = document.createElement('h3');
+		tipsHeading.textContent = 'Garden Tips';
+		tipsHeading.setAttribute('tabindex', '0');
 		tipsHeading.style.cssText = 'margin:0 0 8px 0;color:#8f8;';
 		tipsSection.appendChild(tipsHeading);
 		var tipsList = document.createElement('ul');
@@ -2231,15 +2265,9 @@ Game.registerMod("nvda accessibility", {
 		tipsSection.appendChild(tipsList);
 		panel.appendChild(tipsSection);
 
-		// Insert panel near the garden tools
-		var gardenContent = l('gardenContent') || l('gardenPanel');
-		if (gardenContent) {
-			gardenContent.insertBefore(panel, gardenContent.firstChild);
-		} else {
-			// Fallback: insert after the info button
-			if (infoBtn && infoBtn.parentNode) {
-				infoBtn.parentNode.insertBefore(panel, infoBtn.nextSibling);
-			}
+		// Insert panel after the info button
+		if (infoBtn && infoBtn.parentNode) {
+			infoBtn.parentNode.insertBefore(panel, infoBtn.nextSibling);
 		}
 
 		// Update content and set expanded state
@@ -2256,7 +2284,7 @@ Game.registerMod("nvda accessibility", {
 		if (!effectsSection) return;
 
 		var M = Game.Objects['Farm'].minigame;
-		var effectsHeading = document.createElement('h4');
+		var effectsHeading = document.createElement('h3');
 		effectsHeading.textContent = 'Current Garden Effects';
 		effectsHeading.setAttribute('tabindex', '0');
 		effectsHeading.style.cssText = 'margin:0 0 8px 0;color:#8f8;';
@@ -2274,6 +2302,9 @@ Game.registerMod("nvda accessibility", {
 		}
 
 		var descHtml = M.tools.info.descFunc();
+		// Strip the tips section that follows the divider line
+		var dividerIdx = descHtml.indexOf('<div class="line"></div>');
+		if (dividerIdx > 0) descHtml = descHtml.substring(0, dividerIdx);
 		if (!descHtml || descHtml.trim() === '') {
 			var noEffects = document.createElement('p');
 			noEffects.textContent = 'No active plant effects. Plant seeds to gain bonuses!';
@@ -2358,7 +2389,12 @@ Game.registerMod("nvda accessibility", {
 		}
 		// Check affordability before planting for specific feedback
 		if (!g.canPlant(seed)) {
-			MOD.gardenAnnounce('Not enough cookies to plant ' + seed.name);
+			var cost = g.getCost(seed);
+			var cps = Game.cookiesPs;
+			if (Game.cpsSucked) cps = cps * (1 - Game.cpsSucked);
+			if (cps > 0) {
+				MOD.gardenAnnounce('Can afford in ' + MOD.getTimeUntilAfford(cost));
+			}
 			return;
 		}
 		var result = g.useTool(g.seedSelected, x, y);
@@ -2588,7 +2624,7 @@ Game.registerMod("nvda accessibility", {
 				for (var d = 0; d < allDivs.length; d++) {
 					var div = allDivs[d];
 					if (div.textContent && div.textContent.toLowerCase().indexOf('swap') !== -1 &&
-						div.id !== 'a11y-pantheon-swaps' && !div.id.startsWith('templeSlot') && !div.id.startsWith('templeGod')) {
+						div.id !== 'a11y-pantheon-swaps' && !div.id.startsWith('templeSlot') && !div.id.startsWith('templeGod') && !div.id.startsWith('a11y-')) {
 						// Move this element after the last slot
 						if (!div.dataset.a11yMoved) {
 							div.dataset.a11yMoved = 'true';
@@ -2608,9 +2644,6 @@ Game.registerMod("nvda accessibility", {
 			var slotted = pan.slot.indexOf(god.id);
 			var descParts = [];
 			if (god.descBefore) descParts.push(MOD.stripHtml(god.descBefore));
-			if (god.desc1) descParts.push('Diamond: ' + MOD.stripHtml(god.desc1));
-			if (god.desc2) descParts.push('Ruby: ' + MOD.stripHtml(god.desc2));
-			if (god.desc3) descParts.push('Jade: ' + MOD.stripHtml(god.desc3));
 			if (god.descAfter) descParts.push(MOD.stripHtml(god.descAfter));
 			var cleanDesc = descParts.join('. ').replace(/ +\./g, '.').replace(/ +,/g, ',');
 			var flavorText = god.quote ? MOD.stripHtml(god.quote).replace(/ +\./g, '.').replace(/ +,/g, ',') : '';
@@ -2648,6 +2681,16 @@ Game.registerMod("nvda accessibility", {
 			// Update slot button states (disabled for current slot)
 			MOD.updateSpiritSlotButtons(god, slotted);
 		}
+
+		// Create lump refill proxy at top of pantheon (after last slot)
+		// Use templeSlot2 as anchor — templeInfo may not have been moved yet on the first call
+		// (its "swap" text isn't populated until the game's draw loop runs).
+		// When templeInfo IS moved later, it lands between slot2 and our proxy, giving the
+		// correct order: slots → swap info → lump refill → gods.
+		var lastSlotAnchor = l('templeSlot2');
+		if (lastSlotAnchor) {
+			MOD.createLumpRefillProxy('a11y-temple-lump-refill', 'templeLumpRefill', 'Refill all worship swaps', lastSlotAnchor);
+		}
 	},
 	createSpiritSlotButtons: function(god, godEl, pantheon, slots) {
 		var MOD = this;
@@ -2665,14 +2708,19 @@ Game.registerMod("nvda accessibility", {
 				btn.style.cssText = 'width:24px;height:24px;margin:2px;background:#333;color:#fff;border:1px solid #666;cursor:pointer;';
 				btn.addEventListener('click', function(e) {
 					e.stopPropagation();
-					// Ignore if button is disabled - check by getting fresh reference
-					var thisBtn = l('a11y-god-' + godId + '-slot-' + slotIndex);
-					if (thisBtn && thisBtn.getAttribute('aria-disabled') === 'true') return;
 					// Get fresh references to pantheon and god
 					var pan = Game.Objects['Temple'] && Game.Objects['Temple'].minigame;
 					if (!pan) return;
 					var currentGod = pan.godsById[godId];
 					if (!currentGod) return;
+					// Already in this slot — do nothing
+					if (currentGod.slot === slotIndex) return;
+					// Slot occupied by another god — must remove that god first
+					if (pan.slot[slotIndex] !== -1) {
+						var occupant = pan.godsById[pan.slot[slotIndex]];
+						MOD.announce(slots[slotIndex] + ' slot is occupied by ' + (occupant ? occupant.name : 'another spirit') + '. Remove it first.');
+						return;
+					}
 					if (pan.swaps <= 0) {
 						MOD.announce('Cannot place ' + godName + '. No worship swaps available.');
 						return;
@@ -2688,17 +2736,17 @@ Game.registerMod("nvda accessibility", {
 		godEl.parentNode.insertBefore(container, godEl.nextSibling);
 	},
 	updateSpiritSlotButtons: function(god, currentSlot) {
+		var MOD = this;
+		var slots = ['Diamond', 'Ruby', 'Jade'];
+		var descKeys = ['desc1', 'desc2', 'desc3'];
 		// currentSlot: -1 if not slotted, 0/1/2 if in a slot
 		for (var i = 0; i < 3; i++) {
 			var btn = l('a11y-god-' + god.id + '-slot-' + i);
 			if (!btn) continue;
-			if (currentSlot === i) {
-				btn.setAttribute('aria-disabled', 'true');
-				btn.disabled = true;
-			} else {
-				btn.removeAttribute('aria-disabled');
-				btn.disabled = false;
-			}
+			var lbl = 'Place ' + god.name + ' in ' + slots[i] + ' slot';
+			var slotDesc = god[descKeys[i]] ? MOD.stripHtml(god[descKeys[i]]).replace(/ +\./g, '.').replace(/ +,/g, ',') : '';
+			if (slotDesc) lbl += ', ' + slotDesc;
+			MOD.setAttributeIfChanged(btn, 'aria-label', lbl);
 		}
 	},
 		enhanceGrimoireMinigame: function() {
@@ -2778,6 +2826,12 @@ Game.registerMod("nvda accessibility", {
 			spellContainer.insertBefore(announcer, magicLabel.nextSibling);
 		} else if (existingMagicLabel) {
 			MOD.setTextIfChanged(existingMagicLabel, magicText);
+		}
+
+		// Add magic meter explanation info note (static, created once)
+		var magicHeading = l('a11y-grimoire-magic');
+		if (magicHeading && !l('a11y-grimoire-info')) {
+			MOD.ensureInfoNote('a11y-grimoire-info', 'Maximum magic depends on Wizard Tower count and level. Magic refills over time, slower when lower.', magicHeading);
 		}
 
 		// Install persistent Game.Popup wrapper for spell outcome announcements
@@ -2883,6 +2937,14 @@ Game.registerMod("nvda accessibility", {
 				}
 			}
 		});
+
+		// Create lump refill proxy at top of grimoire (after info note)
+		var grimoireInfoNote = l('a11y-grimoire-info');
+		if (!grimoireInfoNote) grimoireInfoNote = l('a11y-grimoire-announcer');
+		if (!grimoireInfoNote) grimoireInfoNote = l('a11y-grimoire-magic');
+		if (grimoireInfoNote) {
+			MOD.createLumpRefillProxy('a11y-grimoire-lump-refill', 'grimoireLumpRefill', 'Refill 100 magic', grimoireInfoNote);
+		}
 	},
 	enhanceStockMarketMinigame: function() {
 		var MOD = this, mkt = Game.Objects['Bank'] && Game.Objects['Bank'].minigame;
@@ -2890,6 +2952,23 @@ Game.registerMod("nvda accessibility", {
 		MOD.wrapStockMarketFunctions();
 		// Enhance the minigame header
 		MOD.enhanceMinigameHeader(Game.Objects['Bank'], 'Stock Market', mkt);
+		// Create tick timer info bar at top of stock market
+		var bankInfoBar = l('a11y-bank-info-bar');
+		var bankContent = l('bankContent');
+		if (bankContent) {
+			if (!bankInfoBar) {
+				bankInfoBar = document.createElement('div');
+				bankInfoBar.id = 'a11y-bank-info-bar';
+				bankInfoBar.setAttribute('tabindex', '0');
+				bankInfoBar.style.cssText = 'position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;';
+				bankContent.insertBefore(bankInfoBar, bankContent.firstChild);
+			}
+			var tickText = 'Next tick in ' + Game.sayTime((Game.fps * mkt.secondsPerTick) - mkt.tickT + 30, -1);
+			MOD.setTextIfChanged(bankInfoBar, tickText);
+		}
+		// Hide original tick timer from screen readers
+		var origBankNextTick = l('bankNextTick');
+		if (origBankNextTick) origBankNextTick.setAttribute('aria-hidden', 'true');
 		// Enhance each stock row
 		document.querySelectorAll('.bankGood').forEach(function(r) {
 			var id = r.id.replace('bankGood-', ''), good = mkt.goodsById[id];
@@ -3141,7 +3220,7 @@ Game.registerMod("nvda accessibility", {
 				var price = mkt.getGoodPrice(me);
 				var overhead = 1 + 0.01 * (20 * Math.pow(0.95, mkt.brokers));
 				var cost = Game.cookiesPsRawHighest * price * overhead * bought;
-				MOD.announce('Bought ' + bought + ' ' + goodName + ' for ' + Beautify(cost) + ' cookies. Now own ' + me.stock + ' of ' + mkt.getGoodMaxStock(me));
+				MOD.announce('Bought ' + bought + ' ' + goodName + ' for ' + Beautify(cost) + ' cookies');
 			} else {
 				var reason;
 				if (me.last === 2) {
@@ -3153,6 +3232,7 @@ Game.registerMod("nvda accessibility", {
 				}
 				MOD.announce(goodName + ' purchase failed. ' + reason);
 			}
+			MOD.enhanceStockMarketMinigame();
 			return result;
 		};
 
@@ -3167,7 +3247,7 @@ Game.registerMod("nvda accessibility", {
 				var sold = stockBefore - me.stock;
 				var price = mkt.getGoodPrice(me);
 				var revenue = Game.cookiesPsRawHighest * price * sold;
-				MOD.announce('Sold ' + sold + ' ' + goodName + ' for ' + Beautify(revenue) + ' cookies. Now own ' + me.stock + ' of ' + mkt.getGoodMaxStock(me));
+				MOD.announce('Sold ' + sold + ' ' + goodName + ' for ' + Beautify(revenue) + ' cookies');
 			} else {
 				var reason;
 				if (me.last === 1) {
@@ -3179,6 +3259,7 @@ Game.registerMod("nvda accessibility", {
 				}
 				MOD.announce(goodName + ' sale failed. ' + reason);
 			}
+			MOD.enhanceStockMarketMinigame();
 			return result;
 		};
 	},
@@ -3236,6 +3317,11 @@ Game.registerMod("nvda accessibility", {
 				});
 			}
 		}
+		// Hide native shimmer and buff elements - the mod's own panels cover these
+		var shimmersL = l('shimmers');
+		if (shimmersL) shimmersL.setAttribute('aria-hidden', 'true');
+		var buffsL = l('buffs');
+		if (buffsL) buffsL.setAttribute('aria-hidden', 'true');
 	},
 	addStructuralHeadings: function() {
 		var MOD = this;
@@ -3379,10 +3465,12 @@ Game.registerMod("nvda accessibility", {
 				} else {
 					price = building.getSumPrice ? building.getSumPrice(bulkAmount) : building.price * bulkAmount;
 				}
-				if (Game.cookies >= price) {
-					lines.push('Affordable');
-				} else {
-					lines.push('Cannot afford, ' + MOD.getTimeUntilAfford(price));
+				if (Game.cookies < price) {
+					var cps = Game.cookiesPs;
+					if (Game.cpsSucked) cps = cps * (1 - Game.cpsSucked);
+					if (cps > 0) {
+						lines.push('Can afford in ' + MOD.getTimeUntilAfford(price));
+					}
 				}
 			}
 			// In sell mode, don't show time until affordable
@@ -3392,7 +3480,11 @@ Game.registerMod("nvda accessibility", {
 				lines.push('Total production: ' + Beautify(building.storedTotalCps, 1) + ' cookies per second');
 				if (Game.cookiesPs > 0) {
 					var pct = Math.round((building.storedTotalCps / Game.cookiesPs) * 100);
-					lines.push('This is ' + pct + ' percent of total production');
+					if (pct < 1) {
+						lines.push('This is less than 1 percent of total production');
+					} else {
+						lines.push('This is ' + pct + ' percent of total production');
+					}
 				}
 			}
 			if (building.desc) {
@@ -3526,11 +3618,17 @@ Game.registerMod("nvda accessibility", {
 		var existingText = l(textId);
 		// Build the info text - cost is already in the button aria-label
 		var infoText = '';
+		var desc = MOD.stripHtml(u.desc || '');
 		if (u.canBuy()) {
-			infoText = 'Affordable. ' + MOD.stripHtml(u.desc || '');
+			infoText = desc;
 		} else {
-			var timeText = MOD.getTimeUntilAfford(u.getPrice());
-			infoText = 'Cannot afford, ' + timeText + '. ' + MOD.stripHtml(u.desc || '');
+			var cps = Game.cookiesPs;
+			if (Game.cpsSucked) cps = cps * (1 - Game.cpsSucked);
+			if (cps > 0) {
+				infoText = 'Can afford in ' + MOD.getTimeUntilAfford(u.getPrice()) + '. ' + desc;
+			} else {
+				infoText = desc;
+			}
 		}
 		if (existingText) {
 			existingText.textContent = infoText;
@@ -3551,6 +3649,67 @@ Game.registerMod("nvda accessibility", {
 			} else {
 				crate.parentNode.appendChild(infoDiv);
 			}
+		}
+	},
+	labelLumpRefill: function(elementId, effectDesc) {
+		var el = l(elementId);
+		if (!el) return;
+		var canRefill = Game.canRefillLump();
+		var canAfford = Game.lumps >= 1;
+		var lbl = effectDesc + '. Cost: 1 sugar lump';
+		if (!canAfford) {
+			lbl += ', cannot afford';
+		} else if (canRefill) {
+			lbl += ', ready';
+		} else {
+			lbl += ', usable in ' + Game.sayTime(Game.getLumpRefillRemaining() + Game.fps, -1);
+		}
+		this.setAttributeIfChanged(el, 'aria-label', lbl);
+		el.setAttribute('role', 'button');
+		el.setAttribute('tabindex', '0');
+		if (!el.dataset.a11yEnhanced) {
+			el.dataset.a11yEnhanced = 'true';
+			el.addEventListener('keydown', function(e) {
+				if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); el.click(); }
+			});
+		}
+	},
+	createLumpRefillProxy: function(proxyId, origId, desc, afterEl) {
+		var MOD = this;
+		var proxy = l(proxyId);
+		if (!proxy && afterEl && afterEl.parentNode) {
+			proxy = document.createElement('button');
+			proxy.id = proxyId;
+			proxy.type = 'button';
+			proxy.style.cssText = 'position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;';
+			proxy.addEventListener('click', function() {
+				var orig = l(origId);
+				if (orig) orig.click();
+			});
+			if (afterEl.nextSibling) {
+				afterEl.parentNode.insertBefore(proxy, afterEl.nextSibling);
+			} else {
+				afterEl.parentNode.appendChild(proxy);
+			}
+		}
+		if (proxy) {
+			var canRefill = Game.canRefillLump();
+			var canAfford = Game.lumps >= 1;
+			var lbl = desc + '. Cost: 1 sugar lump';
+			if (!canAfford) {
+				lbl += ', cannot afford';
+			} else if (canRefill) {
+				lbl += ', ready';
+			} else {
+				lbl += ', usable in ' + Game.sayTime(Game.getLumpRefillRemaining() + Game.fps, -1);
+			}
+			MOD.setAttributeIfChanged(proxy, 'aria-label', lbl);
+		}
+		// Hide the original element from screen readers
+		var orig = l(origId);
+		if (orig) {
+			orig.setAttribute('aria-hidden', 'true');
+			orig.setAttribute('tabindex', '-1');
 		}
 	},
 	ensureInfoNote: function(id, text, afterEl) {
@@ -4192,15 +4351,22 @@ Game.registerMod("nvda accessibility", {
 			var mbName = minigameBuildings[mi];
 			var mb = Game.Objects[mbName];
 			if (mb && mb.minigame && !MOD.minigameInitDone[mbName]) {
-				MOD.minigameInitDone[mbName] = true;
-				if (mbName === 'Farm' && MOD.gardenReady()) {
-					MOD.enhanceGardenMinigame();
-				} else if (mbName === 'Temple' && MOD.pantheonReady()) {
-					MOD.enhancePantheonMinigame();
-					MOD.createEnhancedPantheonPanel();
+				if (mbName === 'Farm') {
+					if (MOD.gardenReady()) {
+						MOD.minigameInitDone[mbName] = true;
+						MOD.enhanceGardenMinigame();
+					}
+				} else if (mbName === 'Temple') {
+					if (MOD.pantheonReady()) {
+						MOD.minigameInitDone[mbName] = true;
+						MOD.enhancePantheonMinigame();
+						MOD.createEnhancedPantheonPanel();
+					}
 				} else if (mbName === 'Wizard tower') {
+					MOD.minigameInitDone[mbName] = true;
 					MOD.enhanceGrimoireMinigame();
 				} else if (mbName === 'Bank') {
+					MOD.minigameInitDone[mbName] = true;
 					MOD.enhanceStockMarketMinigame();
 				}
 			}
