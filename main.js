@@ -92,16 +92,10 @@ Game.registerMod("nvda accessibility", {
 		Game.registerHook('draw', function() {
 			MOD.updateDynamicLabels();
 		});
-		// Hook into purchases to immediately refresh upgrade labels
-		Game.registerHook('buy', function() {
-			// Immediate refresh on purchase
-			MOD.enhanceUpgradeShop();
-			MOD.populateProductLabels();
-			// Also refresh again shortly after in case store updates
-			setTimeout(function() { MOD.enhanceUpgradeShop(); MOD.populateProductLabels(); }, 100);
-			setTimeout(function() { MOD.enhanceUpgradeShop(); MOD.populateProductLabels(); }, 500);
-		});
-		// Also track store refresh flag
+		// Track building count and store state for immediate label refresh on buy/sell
+		MOD.lastBuildingsOwned = Game.BuildingsOwned;
+		MOD.lastBuyMode = Game.buyMode;
+		MOD.lastBuyBulk = Game.buyBulk;
 		MOD.lastStoreRefresh = Game.storeToRefresh;
 		Game.registerHook('reset', function(hard) {
 			MOD.minigameInitDone = {};
@@ -595,6 +589,10 @@ Game.registerMod("nvda accessibility", {
 			lc.addEventListener('keydown', function(e) {
 				if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); lc.click(); }
 			});
+			lc.addEventListener('click', function() {
+				// Refresh label after harvest (delay for game to process)
+				setTimeout(function() { MOD.updateSugarLumpLabel(); }, 500);
+			});
 		}
 	},
 	updateSugarLumpLabel: function() {
@@ -1028,7 +1026,8 @@ Game.registerMod("nvda accessibility", {
 	},
 	setupGoldenCookieAnnouncements: function() {
 		var MOD = this;
-		// Override pop functions to announce when clicked
+		// Override pop functions to announce non-buff effects via live region
+		// Buff effects are handled by updateBuffTracker
 		if (Game.shimmerTypes && Game.shimmerTypes.golden) {
 			var orig = Game.shimmerTypes.golden.popFunc;
 			Game.shimmerTypes.golden.popFunc = function(me) {
@@ -1064,17 +1063,13 @@ Game.registerMod("nvda accessibility", {
 					return r;
 				}
 
-				var variant = MOD.getShimmerVariantName(me);
-
-				// Non-buff effects: include the captured popup text in the announcement
-				// Buff effects: just announce "clicked!"  - the buff tracker handles the rest
+				// Non-buff effects: announce the effect text from the game's popup
+				// Buff effects: handled by updateBuffTracker, no announcement needed here
 				var nonBuffEffects = ['multiply cookies', 'ruin cookies', 'blab',
-				                      'free sugar lump', 'chain cookie'];
+				                      'free sugar lump'];
 				var lastEffect = Game.shimmerTypes.golden.last;
 				if (capturedPopup && nonBuffEffects.indexOf(lastEffect) !== -1) {
-					MOD.announceUrgent(variant + ' clicked! ' + MOD.stripHtml(capturedPopup));
-				} else {
-					MOD.announceUrgent(variant + ' clicked!');
+					MOD.announceUrgent(MOD.stripHtml(capturedPopup));
 				}
 				return r;
 			};
@@ -1085,8 +1080,19 @@ Game.registerMod("nvda accessibility", {
 				if (MOD.announcedShimmers[me.id]) {
 					MOD.announcedShimmers[me.id].clicked = true;
 				}
+				// Capture Game.Notify to get the reward text
+				var capturedNotify = '';
+				var origNotify = Game.Notify;
+				Game.Notify = function(title, desc, pic, quick, noLog) {
+					capturedNotify = title + '. ' + desc;
+					origNotify.call(Game, title, desc, pic, quick, noLog);
+				};
 				var r = origR.call(this, me);
-				MOD.announceUrgent('Reindeer clicked!');
+				Game.Notify = origNotify;
+				// Announce the reindeer reward via live region
+				if (capturedNotify) {
+					MOD.announceUrgent(MOD.stripHtml(capturedNotify));
+				}
 				return r;
 			};
 		}
@@ -1232,15 +1238,16 @@ Game.registerMod("nvda accessibility", {
 			if (b && b.time > 0) cur[n] = { time: b.time, maxTime: b.maxTime };
 		}
 		// Announce new buffs with full duration
+		// Skip "Cookie storm" — trackRapidFireEvents handles it with click count info
 		for (var n in cur) {
-			if (!MOD.lastBuffs[n]) {
+			if (!MOD.lastBuffs[n] && n !== 'Cookie storm') {
 				var duration = Math.ceil(cur[n].maxTime / Game.fps);
 				MOD.announce(n + ' started for ' + duration + ' seconds!');
 			}
 		}
 		// Announce ended buffs
 		for (var n in MOD.lastBuffs) {
-			if (!cur[n]) MOD.announce(n + ' ended.');
+			if (!cur[n] && n !== 'Cookie storm') MOD.announce(n + ' ended.');
 		}
 		MOD.lastBuffs = cur;
 	},
@@ -2898,6 +2905,8 @@ Game.registerMod("nvda accessibility", {
 								}, 50);
 							}
 						}
+						// Refresh grimoire labels immediately after casting
+						setTimeout(function() { MOD.enhanceGrimoireMinigame(); }, 100);
 						// Clear flag after 3s to cover Gambler's Fever Dream delayed cast
 						setTimeout(function() { MOD.grimoireSpellCasting = false; }, 3000);
 					}; })(sp));
@@ -3098,6 +3107,14 @@ Game.registerMod("nvda accessibility", {
 		}
 		var bankHeader = l('bankHeader');
 		if (bankHeader) {
+			// Add profits heading for navigation
+			if (!l('a11y-profits-heading')) {
+				var profitsHeading = document.createElement('h3');
+				profitsHeading.id = 'a11y-profits-heading';
+				profitsHeading.textContent = 'Profits';
+				profitsHeading.style.cssText = 'position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;';
+				bankHeader.insertBefore(profitsHeading, bankHeader.firstChild);
+			}
 			var summaryId = 'a11y-stock-summary';
 			var summary = l(summaryId);
 			if (!summary) {
@@ -3123,7 +3140,6 @@ Game.registerMod("nvda accessibility", {
 				MOD.setAttributeIfChanged(officeUpgradeBtn, 'aria-label', upgradeLabel);
 			} else if (office) {
 				MOD.setAttributeIfChanged(officeUpgradeBtn, 'aria-label', office.name + ', fully upgraded');
-				MOD.setAttributeIfChanged(officeUpgradeBtn, 'aria-disabled', 'true');
 			}
 			officeUpgradeBtn.setAttribute('role', 'button');
 			officeUpgradeBtn.setAttribute('tabindex', '0');
@@ -4314,10 +4330,11 @@ Game.registerMod("nvda accessibility", {
 	},
 	updateDynamicLabels: function() {
 		var MOD = this;
-		// Track shimmer appearances every 5 ticks for timely announcements
+		// Track shimmers and buffs every 5 ticks for timely announcements
 		if (Game.T % 5 === 0) {
 			MOD.trackRapidFireEvents();
 			MOD.trackShimmerAnnouncements();
+			MOD.updateBuffTracker();
 		}
 		// Enhance notification dismiss buttons
 		var noteDismissBtns = document.querySelectorAll('#notes .close');
@@ -4378,7 +4395,6 @@ Game.registerMod("nvda accessibility", {
 			MOD.updateWrinklerLabels();
 			MOD.updateSugarLumpLabel();
 			MOD.checkVeilState();
-			MOD.updateBuffTracker();
 			MOD.updateAchievementTracker();
 			MOD.updateSeasonTracker();
 			MOD.updateLegacyButtonLabel();
@@ -4419,6 +4435,18 @@ Game.registerMod("nvda accessibility", {
 		if (Game.storeToRefresh !== MOD.lastStoreRefresh) {
 			MOD.lastStoreRefresh = Game.storeToRefresh;
 			setTimeout(function() { MOD.enhanceUpgradeShop(); }, 50);
+		}
+		// Refresh product labels and filter immediately on buy/sell
+		if (Game.BuildingsOwned !== MOD.lastBuildingsOwned) {
+			MOD.lastBuildingsOwned = Game.BuildingsOwned;
+			MOD.populateProductLabels();
+			MOD.filterUnownedBuildings();
+		}
+		// Refresh product labels immediately on buy/sell mode or amount change
+		if (Game.buyMode !== MOD.lastBuyMode || Game.buyBulk !== MOD.lastBuyBulk) {
+			MOD.lastBuyMode = Game.buyMode;
+			MOD.lastBuyBulk = Game.buyBulk;
+			MOD.populateProductLabels();
 		}
 		// Statistics menu - only label once when opened
 		if (Game.onMenu === 'stats' && !MOD.statsLabeled) {
