@@ -59,6 +59,44 @@ Game.registerMod("nvda accessibility", {
 		Game.getTooltip = function() { return ''; };
 		Game.getDynamicTooltip = function() { return ''; };
 		Game.attachTooltip = function() {};
+		// Disable game keyboard shortcuts that conflict with screen reader navigation.
+		// The game registers keydown/keyup handlers on `window` (bubble phase) that intercept
+		// Tab, Enter, Escape, and arrow keys for prompt navigation and ascension panning.
+		// It also tracks Shift/Ctrl in Game.keys[] to trigger bulk-buy mode.
+		// We add bubble-phase listeners on `document` that stop propagation for conflicting
+		// keys, preventing them from reaching the game's window-level handlers while still
+		// allowing our mod's element-scoped handlers (Enter/Space on role="button" divs) to fire.
+		var dominatedKeys = {
+			9: true,   // Tab — core screen reader / browser focus navigation
+			13: true,  // Enter — activates focused elements
+			27: true,  // Escape — toggles NVDA browse/focus mode
+			37: true,  // ArrowLeft
+			38: true,  // ArrowUp
+			39: true,  // ArrowRight
+			40: true   // ArrowDown
+		};
+		document.addEventListener('keydown', function(e) {
+			if (dominatedKeys[e.keyCode]) {
+				e.stopPropagation();
+			}
+			// Prevent Shift/Ctrl from setting Game.keys[] which triggers bulk-buy mode
+			// and arrow keys from setting Game.keys[] which triggers ascension panning.
+			// The game loop reads Game.keys[16]/[17] for bulk-buy and [37]-[40] for panning.
+			if (e.keyCode === 16 || e.keyCode === 17) {
+				Game.keys[e.keyCode] = 0;
+			}
+			if (dominatedKeys[e.keyCode]) {
+				Game.keys[e.keyCode] = 0;
+			}
+		}, false); // false = bubble phase — fires after element handlers, before window handlers
+		document.addEventListener('keyup', function(e) {
+			if (dominatedKeys[e.keyCode]) {
+				e.stopPropagation();
+			}
+			if (e.keyCode === 16 || e.keyCode === 17) {
+				Game.keys[e.keyCode] = 0;
+			}
+		}, false);
 		// Wrap each building's tooltip() to skip ariaReader-product-* label writes.
 		// The game's tooltip function checks Game.prefs.screenreader and writes to those
 		// labels (game-main.js ~8071-8086). We temporarily disable that flag during execution
@@ -5030,10 +5068,10 @@ Game.registerMod("nvda accessibility", {
 		noEffects.textContent = 'No active status effects';
 		featuresList.appendChild(noEffects);
 		panel.appendChild(featuresList);
-		// Insert before wrinklers panel at end of document.body for flat navigation
+		// Insert after wrinklers panel at end of document.body for flat navigation
 		var wrinklerPanel = l('wrinklerOverlayContainer');
-		if (wrinklerPanel) {
-			document.body.insertBefore(panel, wrinklerPanel);
+		if (wrinklerPanel && wrinklerPanel.nextSibling) {
+			document.body.insertBefore(panel, wrinklerPanel.nextSibling);
 		} else {
 			var shimmerPanel = l('a11yShimmerContainer');
 			if (shimmerPanel) {
