@@ -50,7 +50,7 @@ If you want to modify the mod and rebuild the userscript:
 
 ## Getting Started
 
-When the mod loads, it announces "NVDA Accessibility mod version 11.7 loaded." The game interface is organized into navigable sections using headings:
+When the mod loads, it announces "NVDA Accessibility mod version 13.2 loaded." The game interface is organized into navigable sections using headings:
 
 - **News** (H2): The game's news ticker. Focusable but set to aria-live off to avoid noise.
 - **Store** (H2): Contains available upgrades and buildings.
@@ -89,7 +89,7 @@ Press the Reincarnate button to start a new run.
 
 ## Using the Minigames
 
-Minigames unlock at building level 1 (costs 1 sugar lump). Each building with a minigame has an Open/Close button that toggles the minigame panel.
+Minigames unlock at building level 1 (costs 1 sugar lump). Each building with a minigame has an Open/Close button that toggles the minigame panel. You can also press Escape to close any open minigame panel.
 
 ### Garden (Farm - Level 1)
 

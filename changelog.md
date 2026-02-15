@@ -1,5 +1,12 @@
 # Cookie Clicker Access - Changelog
 
+## Version 13.2
+
+- Press Escape to close any open minigame panel, dragon panel, or milk selector
+- Garden plant activity (growth, maturity, decay) is now announced via live region while the garden minigame is open
+- Improved dragon panel accessibility
+- Improved ascension screen accessibility
+
 ## Version 12
 
 - Added Statistics Module for accessible upgrade and achievement labels
