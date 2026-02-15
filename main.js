@@ -203,16 +203,8 @@ Game.registerMod("nvda accessibility", {
 				MOD.enhancePermanentUpgradeSlots();
 			}, 50);
 		};
-		// Wrap Game.clickLump to track sugar lump harvest results
-		var origClickLump = Game.clickLump;
-		Game.clickLump = function() {
-			var prevLumps = Game.lumps;
-			var prevLumpT = Game.lumpT;
-			origClickLump.apply(this, arguments);
-			var gained = Game.lumps - prevLumps;
-			var harvested = (Game.lumpT !== prevLumpT); // lumpT resets on harvest
-			MOD.lastLumpHarvest = { gained: gained, harvested: harvested };
-		};
+		// Sugar lump state tracked every frame for click comparison
+		MOD.trackedLumpState = { lumps: 0, lumpT: 0 };
 		// Track which aura slot is being edited for inline picker
 		MOD.editingAuraSlot = -1;
 		MOD.selectedAuraForSlot = -1;
@@ -221,8 +213,9 @@ Game.registerMod("nvda accessibility", {
 		MOD.gardenBuildPanelWrapped = false;
 		MOD.gardenBuildPlotWrapped = false;
 		MOD.gardenPlotSnapshot = {};
-		MOD.gardenDecayWarned = {};
+
 		MOD.gardenPrevUnlockedTiles = 0;
+		MOD.gardenPrevHarvests = -1;
 		MOD.gardenSnapshotInitialized = false;
 		MOD.stockMarketWrapped = false;
 		MOD.highestOwnedBuildingId = -1;
@@ -276,8 +269,9 @@ Game.registerMod("nvda accessibility", {
 			MOD.gardenBuildPanelWrapped = false;
 			MOD.gardenBuildPlotWrapped = false;
 			MOD.gardenPlotSnapshot = {};
-			MOD.gardenDecayWarned = {};
+	
 			MOD.gardenPrevUnlockedTiles = 0;
+			MOD.gardenPrevHarvests = -1;
 			MOD.stockMarketWrapped = false;
 			MOD.initRetriesComplete = false;
 	
@@ -860,19 +854,28 @@ Game.registerMod("nvda accessibility", {
 				if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); lc.click(); }
 			});
 			lc.addEventListener('click', function() {
-				// Announce harvest result and refresh label (delay for game to process)
+				// Compare against frame-tracked state (set every frame in updateDynamicLabels)
+				// This works even when NVDA intercepts Enter and our keydown never fires
+				var pre = MOD.trackedLumpState;
 				setTimeout(function() {
-					if (MOD.lastLumpHarvest && MOD.lastLumpHarvest.harvested) {
-						var gained = MOD.lastLumpHarvest.gained;
+					var gained = Game.lumps - pre.lumps;
+					var harvested = (Game.lumpT !== pre.lumpT);
+					if (harvested) {
 						if (gained > 0) {
 							MOD.announce('Harvested ' + gained + ' sugar lump' + (gained !== 1 ? 's' : '') + '. You now have ' + Beautify(Game.lumps) + ' lumps.');
 						} else {
 							MOD.announce('Botched harvest. You still have ' + Beautify(Game.lumps) + ' lumps.');
 						}
-						MOD.lastLumpHarvest = null;
+					} else {
+						var age = Date.now() - Game.lumpT;
+						if (age < Game.lumpMatureAge) {
+							MOD.announce('Sugar lump is not mature yet. Cannot harvest.');
+						} else {
+							MOD.announce('Cannot harvest sugar lump right now.');
+						}
 					}
 					MOD.updateSugarLumpLabel();
-				}, 500);
+				}, 100);
 			});
 		}
 	},
@@ -2098,37 +2101,34 @@ Game.registerMod("nvda accessibility", {
 				var canAfford = g.canPlant(plant);
 				lbl = plant.name + '. Cost: ' + Beautify(Math.round(cost)) + ' cookies. ' + (canAfford ? 'Affordable' : 'Cannot afford');
 			}
-			seed.setAttribute('aria-label', lbl);
+			MOD.setAttributeIfChanged(seed, 'aria-label', lbl);
 			MOD.ensureSeedInfoText(g, plant, seed);
 			MOD.setAttributeIfChanged(seed, 'role', 'button');
 			MOD.setAttributeIfChanged(seed, 'tabindex', '0');
 			if (!seed.getAttribute('data-a11y-kb')) {
 				seed.setAttribute('data-a11y-kb', '1');
-				(function(el) {
+				(function(el, plantName, plantId) {
 					el.addEventListener('keydown', function(e) {
 						if (e.key === 'Enter' || e.key === ' ') {
 							e.preventDefault();
+							el.dataset.shiftHeld = e.shiftKey ? '1' : '0';
 							el.click();
 						}
 					});
-				})(seed);
-			}
-			// Add click handler for immediate "Selected"/"Deselected" announcement
-			if (!seed.getAttribute('data-a11y-click')) {
-				seed.setAttribute('data-a11y-click', '1');
-				(function(el, plantName, plantId) {
-					el.addEventListener('click', function() {
+					el.addEventListener('click', function(e) {
 						var g = Game.Objects['Farm'].minigame;
 						if (!g) return;
+						var bulk = e.shiftKey || el.dataset.shiftHeld === '1';
+						el.dataset.shiftHeld = '0';
 						if (g.seedSelected == plantId) {
-							MOD.gardenAnnounce('Selected ' + plantName);
+							MOD.gardenAnnounce((bulk ? 'Bulk selected ' : 'Selected ') + plantName);
 						} else if (g.seedSelected < 0) {
 							MOD.gardenAnnounce('Deselected ' + plantName);
 						}
 					});
 				})(seed, plant.name, parseInt(seedId));
 			}
-		}
+			}
 
 		// Label garden tools - they use ID format: gardenTool-{id}
 		// Tool keys: 'info', 'harvestAll', 'freeze', 'convert'
@@ -2938,9 +2938,14 @@ Game.registerMod("nvda accessibility", {
 		// First run: silently populate snapshot without announcing anything
 		var isFirstRun = !MOD.gardenSnapshotInitialized;
 
+		// Track harvest counter to distinguish manual harvests from natural decay
+		var currentHarvests = g.harvests;
+		var harvestHappened = MOD.gardenPrevHarvests >= 0 && currentHarvests > MOD.gardenPrevHarvests;
+		MOD.gardenPrevHarvests = currentHarvests;
+
 		var stageUps = [];
 		var matured = [];
-		var decayWarnings = [];
+		var decayed = [];
 		var weedAlerts = [];
 		var newPlants = [];
 		var snapshot = MOD.gardenPlotSnapshot;
@@ -2952,8 +2957,10 @@ Game.registerMod("nvda accessibility", {
 				var tile = g.plot[y] && g.plot[y][x];
 				var key = x + ',' + y;
 				if (!tile || tile[0] < 1) {
-					// Tile is empty — clear tracking
-					if (snapshot[key]) delete MOD.gardenDecayWarned[key];
+					// Tile is empty — detect if a mature plant decayed (not manually harvested)
+					if (!isFirstRun && !harvestHappened && snapshot[key] && snapshot[key].stage === 4 && !snapshot[key].immortal) {
+						decayed.push(snapshot[key].name + ' at row ' + (y+1) + ', column ' + (x+1));
+					}
 					newSnapshot[key] = null;
 					continue;
 				}
@@ -2963,7 +2970,7 @@ Game.registerMod("nvda accessibility", {
 				var age = tile[1];
 				var stage = getStage(age, plant.mature || 100);
 				var prev = snapshot[key];
-				newSnapshot[key] = { id: plantId, stage: stage, name: plant.name };
+				newSnapshot[key] = { id: plantId, stage: stage, name: plant.name, immortal: plant.immortal };
 
 				if (!isFirstRun) {
 					// Spontaneous appearance detection (crossbreeds, weeds, fungi)
@@ -2987,19 +2994,7 @@ Game.registerMod("nvda accessibility", {
 					}
 				}
 
-				// A2: Decay warning for mature non-immortal plants
-				if (!isFirstRun && stage === 4 && !plant.immortal && !MOD.gardenDecayWarned[key]) {
-					var dragonBoost = 1 / (1 + 0.05 * Game.auraMult('Supreme Intellect'));
-					var avgTick = plant.ageTick + plant.ageTickR / 2;
-					var ageMult = (g.plotBoost && g.plotBoost[y] && g.plotBoost[y][x]) ? g.plotBoost[y][x][0] : 1;
-					var decayFrames = ((100 / (ageMult * avgTick)) * ((100 - age) / 100) * dragonBoost * g.stepT) * 30;
-					var decaySeconds = decayFrames / 30;
-					if (decaySeconds < 30) {
-						MOD.gardenDecayWarned[key] = true;
-						decayWarnings.push(plant.name + ' at row ' + (y+1) + ', column ' + (x+1));
-					}
 				}
-			}
 		}
 		MOD.gardenPlotSnapshot = newSnapshot;
 
@@ -3024,16 +3019,11 @@ Game.registerMod("nvda accessibility", {
 		if (weedAlerts.length > 0) {
 			MOD.announceUrgent('Warning: ' + weedAlerts.join('. '));
 		}
-		if (decayWarnings.length > 0) {
-			// Only announce decay if no weed alert was just sent
-			var decayMsg = (decayWarnings.length === 1)
-				? decayWarnings[0] + ' is about to decay'
-				: decayWarnings.length + ' plants about to decay: ' + decayWarnings.join(', ');
-			if (weedAlerts.length > 0) {
-				setTimeout(function() { MOD.announceUrgent(decayMsg); }, 200);
-			} else {
-				MOD.announceUrgent(decayMsg);
-			}
+		if (decayed.length > 0) {
+			var decayedMsg = (decayed.length === 1)
+				? decayed[0] + ' has decayed'
+				: decayed.length + ' plants decayed: ' + decayed.join(', ');
+			MOD.gardenAnnounce(decayedMsg);
 		}
 		if (newPlants.length > 0) {
 			MOD.gardenAnnounce(newPlants.join('. '));
@@ -5136,6 +5126,7 @@ Game.registerMod("nvda accessibility", {
 			MOD.populateProductLabels();
 			MOD.updateWrinklerLabels();
 			MOD.updateSugarLumpLabel();
+			if (Game.lumps !== undefined) MOD.trackedLumpState = { lumps: Game.lumps, lumpT: Game.lumpT };
 			MOD.checkVeilState();
 			MOD.updateAchievementTracker();
 			MOD.updateSeasonTracker();
