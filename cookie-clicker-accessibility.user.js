@@ -3916,51 +3916,6 @@ Game.registerMod("nvda accessibility", {
 		var slots = ['Diamond', 'Ruby', 'Jade'];
 		// Enhance the minigame header
 		MOD.enhanceMinigameHeader(Game.Objects['Temple'], 'Pantheon', pan);
-		// Reorder DOM elements: slots first, then gods in order
-		var firstSlot = l('templeSlot0');
-		if (firstSlot && firstSlot.parentNode) {
-			var parent = firstSlot.parentNode;
-			// Move slots to the beginning (in reverse order so they end up 0, 1, 2)
-			for (var i = 2; i >= 0; i--) {
-				var slotEl = l('templeSlot' + i);
-				if (slotEl) {
-					parent.insertBefore(slotEl, parent.firstChild);
-				}
-			}
-			// Move gods after slots (sorted by id)
-			var godIds = Object.keys(pan.gods).sort(function(a, b) { return parseInt(a) - parseInt(b); });
-			var lastSlot = l('templeSlot2');
-			var insertPoint = lastSlot ? lastSlot.nextSibling : null;
-			for (var j = 0; j < godIds.length; j++) {
-				var godId = pan.gods[godIds[j]].id;
-				var godEl = l('templeGod' + godId);
-				if (godEl) {
-					// Move elements in order: heading, flavor, buff, god, buttons
-					var headingEl = l('a11y-god-heading-' + godId);
-					var flavorEl = l('a11y-god-flavor-' + godId);
-					var buffEl = l('a11y-god-buff-' + godId);
-					var elementsToMove = [headingEl, flavorEl, buffEl, godEl];
-					for (var k = 0; k < elementsToMove.length; k++) {
-						if (elementsToMove[k]) {
-							if (insertPoint) {
-								parent.insertBefore(elementsToMove[k], insertPoint);
-							} else {
-								parent.appendChild(elementsToMove[k]);
-							}
-						}
-					}
-					// Move button container if it exists (inserted after god)
-					var btnContainer = godEl.nextSibling;
-					if (btnContainer && btnContainer.className === 'a11y-spirit-controls') {
-						if (insertPoint) {
-							parent.insertBefore(btnContainer, insertPoint);
-						} else {
-							parent.appendChild(btnContainer);
-						}
-					}
-				}
-			}
-			}
 		// Enhance spirit slots
 		for (var i = 0; i < 3; i++) {
 			var slotEl = l('templeSlot' + i);
@@ -4064,25 +4019,28 @@ Game.registerMod("nvda accessibility", {
 			godEl.setAttribute('aria-hidden', 'true');
 			godEl.removeAttribute('tabindex');
 			// Add h3 heading, flavor, buff, and slot buttons if not already added
+			// Use the placeholder as anchor — the god element may be inside a slot
+			var placeholder = l('templeGodPlaceholder' + god.id);
+			var anchor = placeholder || godEl;
 			if (!godEl.dataset.a11yEnhanced) {
 				godEl.dataset.a11yEnhanced = 'true';
-				// Add h3 heading before god element
+				// Add h3 heading before the anchor in the roster
 				var heading = document.createElement('h3');
 				heading.id = 'a11y-god-heading-' + god.id;
 				heading.textContent = god.name + (slotted >= 0 ? ', in ' + slots[slotted] + ' slot' : '');
 				heading.style.cssText = 'position:absolute;left:-10000px;width:1px;height:1px;overflow:hidden;';
-				godEl.parentNode.insertBefore(heading, godEl);
+				anchor.parentNode.insertBefore(heading, anchor);
 				// Add flavor text element
 				var flavorEl = document.createElement('div');
 				flavorEl.id = 'a11y-god-flavor-' + god.id;
 				flavorEl.style.cssText = 'position:absolute;left:-10000px;width:1px;height:1px;overflow:hidden;';
-				godEl.parentNode.insertBefore(flavorEl, godEl);
+				anchor.parentNode.insertBefore(flavorEl, anchor);
 				// Add buff text element
 				var buffEl = document.createElement('div');
 				buffEl.id = 'a11y-god-buff-' + god.id;
 				buffEl.style.cssText = 'position:absolute;left:-10000px;width:1px;height:1px;overflow:hidden;';
-				godEl.parentNode.insertBefore(buffEl, godEl);
-				MOD.createSpiritSlotButtons(god, godEl, pan, slots);
+				anchor.parentNode.insertBefore(buffEl, anchor);
+				MOD.createSpiritSlotButtons(god, anchor, pan, slots);
 			}
 			// Update heading, flavor and buff text (can change when god is slotted/unslotted)
 			var headingEl = l('a11y-god-heading-' + god.id);
@@ -4105,7 +4063,7 @@ Game.registerMod("nvda accessibility", {
 			MOD.createLumpRefillProxy('a11y-temple-lump-refill', 'templeLumpRefill', 'Refill all worship swaps', lastSlotAnchor);
 		}
 	},
-	createSpiritSlotButtons: function(god, godEl, pantheon, slots) {
+	createSpiritSlotButtons: function(god, anchorEl, pantheon, slots) {
 		var MOD = this;
 		var godId = god.id; // Store ID, not reference
 		var godName = god.name;
@@ -4146,7 +4104,7 @@ Game.registerMod("nvda accessibility", {
 				container.appendChild(btn);
 			})(i, slots[i]);
 		}
-		godEl.parentNode.insertBefore(container, godEl.nextSibling);
+		anchorEl.parentNode.insertBefore(container, anchorEl.nextSibling);
 	},
 	updateSpiritSlotButtons: function(god, currentSlot) {
 		var MOD = this;
@@ -6762,10 +6720,14 @@ Game.registerMod("nvda accessibility", {
 	// ============================================
 	// MODULE: Enhanced Pantheon
 	// ============================================
-	createEnhancedPantheonPanel: function() {
+	createEnhancedPantheonPanel: function(forceRebuild) {
 		var MOD = this;
 		if (!MOD.pantheonReady()) return;
 		var pan = Game.Objects['Temple'].minigame;
+		// Build a fingerprint of current state to avoid unnecessary rebuilds
+		var fingerprint = (pan.swaps || 0) + ':' + pan.slot.join(',');
+		if (!forceRebuild && fingerprint === MOD._pantheonFingerprint && l('a11yPantheonPanel')) return;
+		MOD._pantheonFingerprint = fingerprint;
 		var oldPanel = l('a11yPantheonPanel');
 		if (oldPanel) oldPanel.remove();
 		// Find pantheon container
@@ -6810,7 +6772,7 @@ Game.registerMod("nvda accessibility", {
 					clearBtn.addEventListener('click', function() {
 						pan.slotGod(godObj, -1);
 						MOD.announce(godObj.name + ' removed from ' + slots[slotIdx] + ' slot');
-						MOD.createEnhancedPantheonPanel();
+						MOD.createEnhancedPantheonPanel(true);
 						MOD.enhancePantheonMinigame();
 					});
 				})(i, god);
@@ -6853,7 +6815,7 @@ Game.registerMod("nvda accessibility", {
 					slotBtn.addEventListener('click', function() {
 						pan.slotGod(godObj, slotIdx);
 						MOD.announce(godObj.name + ' placed in ' + slots[slotIdx] + ' slot');
-						MOD.createEnhancedPantheonPanel();
+						MOD.createEnhancedPantheonPanel(true);
 						MOD.enhancePantheonMinigame();
 					});
 					btnContainer.appendChild(slotBtn);
@@ -7378,6 +7340,7 @@ Game.registerMod("nvda accessibility", {
 	save: function() { return ''; },
 	load: function(s) {}
 });
+
         console.log('Cookie Clicker Accessibility Mod loaded and registered!');
     }
 
