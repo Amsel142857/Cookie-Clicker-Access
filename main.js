@@ -241,7 +241,6 @@ Game.registerMod("nvda accessibility", {
 			MOD.enhanceShimmeringVeil();
 			MOD.enhanceDragonUI();
 			MOD.enhanceSantaUI();
-			MOD.enhanceStatisticsScreen();
 			MOD.enhanceQoLSelectors();
 			MOD.setupMilkSelectorOverride();
 			MOD.enhanceBuildingMinigames();
@@ -253,8 +252,6 @@ Game.registerMod("nvda accessibility", {
 			MOD.createGameStatsPanel();
 			MOD.filterUnownedBuildings();
 			MOD.labelBuildingLevels();
-			// Initialize Statistics Module
-			MOD.labelStatsUpgradesAndAchievements();
 		}, 500);
 		Game.registerHook('draw', function() {
 			MOD.updateDynamicLabels();
@@ -290,8 +287,6 @@ Game.registerMod("nvda accessibility", {
 				MOD.createMainInterfaceEnhancements();
 				MOD.createGameStatsPanel();
 				MOD.filterUnownedBuildings();
-				// Re-initialize Statistics Module after reset
-				MOD.labelStatsUpgradesAndAchievements();
 			}, 100);
 		});
 		Game.Notify('Accessibility Enhanced', 'Version 13.2', [10, 0], 6);
@@ -1280,8 +1275,144 @@ Game.registerMod("nvda accessibility", {
 		}
 		lb.setAttribute('aria-label', lbl);
 	},
-	enhanceStatisticsScreen: function() {
-		// Removed - stats now labeled on-demand
+	enhanceStatsMenu: function() {
+		var MOD = this, menu = l('menu');
+		if (!menu) return;
+		// Guard on a child element — destroyed with each UpdateMenu() innerHTML rebuild,
+		// unlike #menu itself whose dataset persists across rebuilds.
+		var firstTitle = menu.querySelector('.subsection > .title');
+		if (!firstTitle || firstTitle.getAttribute('role') === 'heading') return;
+
+		MOD.labelStatisticsContent();
+		MOD.enhanceStatsStructure();
+	},
+	enhanceStatsStructure: function() {
+		var MOD = this, menu = l('menu');
+		if (!menu) return;
+
+		// Section headings
+		var titles = menu.querySelectorAll('.subsection > .title');
+		for (var i = 0; i < titles.length; i++) {
+			titles[i].setAttribute('role', 'heading');
+			titles[i].setAttribute('aria-level', '2');
+		}
+
+		// Trophy summaries — milk flavors
+		if (Game.Milks && Game.Milks.length > 0) {
+			var milkListings = menu.querySelectorAll('#statsAchievs .listing');
+			var milkLabel = loc ? loc("Milk flavors unlocked:") : "Milk flavors unlocked:";
+			var milkParent = null;
+			for (var i = 0; i < milkListings.length; i++) {
+				if (milkListings[i].textContent.indexOf(milkLabel) !== -1) {
+					milkParent = milkListings[i].nextElementSibling;
+					break;
+				}
+			}
+			if (milkParent && milkParent.querySelector('.trophy')) {
+				var milkTrophies = milkParent.querySelectorAll('.trophy');
+				var milkNames = [];
+				for (var i = 0; i < Game.Milks.length; i++) {
+					if (Game.milkProgress >= i) milkNames.push(Game.Milks[i].name);
+				}
+				if (milkNames.length > 0) {
+					for (var i = 0; i < milkTrophies.length; i++) {
+						milkTrophies[i].setAttribute('aria-hidden', 'true');
+					}
+					var el = document.createElement('div');
+					el.setAttribute('tabindex', '0');
+					el.setAttribute('role', 'note');
+					el.textContent = milkLabel + ' ' + milkNames.join(', ');
+					el.style.cssText = 'padding:4px 8px;font-size:11px;';
+					milkParent.parentNode.insertBefore(el, milkParent.nextSibling);
+				}
+			}
+		}
+
+		// Trophy summaries — Santa stages
+		var specialDiv = l('statsSpecial');
+		if (specialDiv && Game.santaLevels && Game.Has('A festive hat')) {
+			var santaLabel = loc ? loc("Santa stages unlocked:") : "Santa stages unlocked:";
+			var allDivs = specialDiv.querySelectorAll('div');
+			for (var i = 0; i < allDivs.length; i++) {
+				var d = allDivs[i];
+				if (!d.querySelector('.trophy')) continue;
+				var prev = d.previousElementSibling;
+				if (!prev || prev.textContent.indexOf(loc ? loc("Santa stages unlocked:") : "Santa stages") === -1) continue;
+				var santaTrophies = d.querySelectorAll('.trophy');
+				var santaNames = [];
+				for (var j = 0; j <= Game.santaLevel && j < Game.santaLevels.length; j++) {
+					santaNames.push(Game.santaLevels[j]);
+				}
+				if (santaNames.length > 0) {
+					for (var j = 0; j < santaTrophies.length; j++) {
+						santaTrophies[j].setAttribute('aria-hidden', 'true');
+					}
+					var el = document.createElement('div');
+					el.setAttribute('tabindex', '0');
+					el.setAttribute('role', 'note');
+					el.textContent = santaLabel + ' ' + santaNames.join(', ');
+					el.style.cssText = 'padding:4px 8px;font-size:11px;';
+					d.parentNode.insertBefore(el, d.nextSibling);
+				}
+				break;
+			}
+		}
+
+		// Trophy summaries — Dragon training
+		if (specialDiv && Game.dragonLevels && Game.Has('A crumbly egg')) {
+			var dragonLabel = loc ? loc("Dragon training:") : "Dragon training:";
+			var allDivs = specialDiv.querySelectorAll('div');
+			for (var i = 0; i < allDivs.length; i++) {
+				var d = allDivs[i];
+				if (!d.querySelector('.trophy')) continue;
+				var prev = d.previousElementSibling;
+				if (!prev || prev.textContent.indexOf(loc ? loc("Dragon training:") : "Dragon training") === -1) continue;
+				var dragonTrophies = d.querySelectorAll('.trophy');
+				var mainLevels = [0, 4, 8, Game.dragonLevels.length - 3, Game.dragonLevels.length - 2, Game.dragonLevels.length - 1];
+				var dragonNames = [];
+				for (var j = 0; j < mainLevels.length; j++) {
+					if (Game.dragonLevel >= mainLevels[j]) {
+						var lvl = Game.dragonLevels[mainLevels[j]];
+						if (lvl) dragonNames.push(lvl.name);
+					}
+				}
+				if (dragonNames.length > 0) {
+					for (var j = 0; j < dragonTrophies.length; j++) {
+						dragonTrophies[j].setAttribute('aria-hidden', 'true');
+					}
+					var el = document.createElement('div');
+					el.setAttribute('tabindex', '0');
+					el.setAttribute('role', 'note');
+					el.textContent = dragonLabel + ' ' + dragonNames.join(', ');
+					el.style.cssText = 'padding:4px 8px;font-size:11px;';
+					d.parentNode.insertBefore(el, d.nextSibling);
+				}
+				break;
+			}
+		}
+
+		// Hide decorative elements
+		var tinyCookies = menu.querySelectorAll('.tinyCookie');
+		for (var i = 0; i < tinyCookies.length; i++) {
+			tinyCookies[i].setAttribute('aria-hidden', 'true');
+		}
+		var prestigeDiv = l('statsPrestige');
+		if (prestigeDiv) {
+			var prestigeIcons = prestigeDiv.querySelectorAll('.icon');
+			for (var i = 0; i < prestigeIcons.length; i++) {
+				prestigeIcons[i].setAttribute('aria-hidden', 'true');
+			}
+		}
+		if (specialDiv) {
+			var challengeIcons = specialDiv.querySelectorAll('.listing .icon');
+			for (var i = 0; i < challengeIcons.length; i++) {
+				challengeIcons[i].setAttribute('aria-hidden', 'true');
+			}
+		}
+		var selectorCorners = menu.querySelectorAll('.selectorCorner');
+		for (var i = 0; i < selectorCorners.length; i++) {
+			selectorCorners[i].setAttribute('aria-hidden', 'true');
+		}
 	},
 	labelStatisticsContent: function() {
 		var MOD = this, menu = l('menu');
@@ -1312,10 +1443,7 @@ Game.registerMod("nvda accessibility", {
 				MOD.statsLabelingInProgress = false;
 			}
 		}
-		setTimeout(processBatch, 50);
-	},
-	labelAllStatsCrates: function() {
-		this.labelStatisticsContent();
+		processBatch();
 	},
 	labelStatsAchievementIcon: function(icon, ach, isShadow) {
 		if (!icon || !ach) return;
@@ -1338,8 +1466,10 @@ Game.registerMod("nvda accessibility", {
 		}
 		// Also set aria-label directly
 		icon.setAttribute('aria-label', lbl);
-		if (!icon.getAttribute('role')) icon.setAttribute('role', 'button');
-		if (!icon.getAttribute('tabindex')) icon.setAttribute('tabindex', '0');
+		if (icon.tagName !== 'BUTTON') {
+			if (!icon.getAttribute('role')) icon.setAttribute('role', 'button');
+			if (!icon.getAttribute('tabindex')) icon.setAttribute('tabindex', '0');
+		}
 	},
 	labelStatsUpgradeIcon: function(icon, upg, isHeavenly) {
 		if (!icon || !upg) return;
@@ -1360,14 +1490,11 @@ Game.registerMod("nvda accessibility", {
 		}
 		// Also set aria-label directly
 		icon.setAttribute('aria-label', lbl);
-		if (!icon.getAttribute('role')) icon.setAttribute('role', 'button');
-		if (!icon.getAttribute('tabindex')) icon.setAttribute('tabindex', '0');
+		if (icon.tagName !== 'BUTTON') {
+			if (!icon.getAttribute('role')) icon.setAttribute('role', 'button');
+			if (!icon.getAttribute('tabindex')) icon.setAttribute('tabindex', '0');
+		}
 	},
-	// Legacy functions for backwards compatibility
-	enhanceAchievementIcons: function() { this.labelAllStatsCrates(); },
-	enhanceUpgradeIcons: function() { this.labelAllStatsCrates(); },
-	labelAchievementIcon: function(i, a) { this.labelStatsAchievementIcon(i, a, false); },
-	labelUpgradeIcon: function(i, u) { this.labelStatsUpgradeIcon(i, u, false); },
 	setupNewsTicker: function() {
 		// News ticker disabled - too noisy for screen readers
 		// Users can manually navigate to read if needed
@@ -5186,12 +5313,9 @@ Game.registerMod("nvda accessibility", {
 			MOD.lastBuyBulk = Game.buyBulk;
 			MOD.populateProductLabels();
 		}
-		// Statistics menu - only label once when opened
-		if (Game.onMenu === 'stats' && !MOD.statsLabeled) {
-			MOD.statsLabeled = true;
-			setTimeout(function() { MOD.labelStatisticsContent(); }, 200);
-		} else if (Game.onMenu !== 'stats') {
-			MOD.statsLabeled = false;
+		// Statistics menu - re-enhance after each UpdateMenu() rebuild
+		if (Game.onMenu === 'stats') {
+			MOD.enhanceStatsMenu();
 		}
 		if (Game.OnAscend) {
 			if (!MOD.wasOnAscend) {
@@ -6007,7 +6131,7 @@ Game.registerMod("nvda accessibility", {
 	// MODULE: Statistics Enhancement
 	// ============================================
 	enhanceAchievementDetails: function() {
-		// Consolidated into labelAllStatsCrates - no longer needed separately
+		// No longer needed - handled via enhanceStatsMenu
 	},
 	getAchievementCondition: function(ach) {
 		if (!ach) return '';
@@ -6454,13 +6578,8 @@ Game.registerMod("nvda accessibility", {
 	},
 
 	// ============================================
-	// Statistics Menu - Upgrades & Achievements Labels
+	// Tech Upgrades Labels (research panel in main view)
 	// ============================================
-	labelStatsUpgradesAndAchievements: function() {
-		var MOD = this;
-		MOD.labelStatsUpgrades();
-		MOD.labelStatsAchievements();
-	},
 	labelStatsUpgrades: function() {
 		var MOD = this;
 		// Label tech upgrades if visible (store upgrades are handled by populateUpgradeLabel)
@@ -6499,23 +6618,6 @@ Game.registerMod("nvda accessibility", {
 				if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); crate.click(); }
 			});
 		}
-	},
-	labelStatsAchievements: function() {
-		// Consolidated into labelAllStatsCrates - no longer needed separately
-	},
-	labelStatsScreen: function() {
-		var MOD = this;
-		if (Game.onMenu !== 'stats') return;
-		MOD.labelStatsUpgrades();
-		MOD.labelStatsAchievements();
-		// Label section headers
-		document.querySelectorAll('.section .title').forEach(function(title) {
-			var section = title.closest('.section');
-			if (section && !section.getAttribute('role')) {
-				MOD.setAttributeIfChanged(section, 'role', 'region');
-				section.setAttribute('aria-label', title.textContent);
-			}
-		});
 	},
 	labelStatsHeavenly: function() {
 		var MOD = this;

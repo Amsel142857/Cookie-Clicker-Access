@@ -26,14 +26,6 @@ echo "    // === Garden Module ===" >> "$OUTPUT"
 cat modules/garden.js >> "$OUTPUT"
 echo "" >> "$OUTPUT"
 
-echo "    // === Pantheon Module ===" >> "$OUTPUT"
-cat modules/pantheon.js >> "$OUTPUT"
-echo "" >> "$OUTPUT"
-
-echo "    // === Statistics Module ===" >> "$OUTPUT"
-cat modules/statistics.js >> "$OUTPUT"
-echo "" >> "$OUTPUT"
-
 echo "    // === Main Mod (wrapped for delayed registration) ===" >> "$OUTPUT"
 cat >> "$OUTPUT" << 'EOF'
     // Wrap the mod registration to ensure Game is ready
