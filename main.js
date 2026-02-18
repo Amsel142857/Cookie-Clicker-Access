@@ -3,8 +3,18 @@ Game.registerMod("nvda accessibility", {
 		var MOD = this;
 		this.createLiveRegion();
 		this.createAssertiveLiveRegion();
-			if (!Game.prefs.screenreader) { Game.prefs.screenreader = 1; }
+		if (!Game.prefs.screenreader) { Game.prefs.screenreader = 1; }
 		if (Game.volume !== undefined) { Game.volumeMusic = 0; }
+		// Disable visual effects — useless for screen readers, frees up CPU
+		Game.prefs.fancy = 0;
+		Game.prefs.filters = 0;
+		Game.prefs.particles = 0;
+		Game.prefs.numbers = 0;
+		Game.prefs.cursors = 0;
+		Game.prefs.milk = 0;
+		Game.prefs.wobbly = 0;
+		if (Game.ToggleFancy) Game.ToggleFancy();
+		if (Game.ToggleFilters) Game.ToggleFilters();
 		this.lastVeilState = null;
 		this.lastBuffs = {};
 		this.lastAchievementCount = 0;
@@ -84,9 +94,46 @@ Game.registerMod("nvda accessibility", {
 				Game.keys[e.keyCode] = 0;
 			}
 		}, false); // false = bubble phase — fires after element handlers, before window handlers
-		// Escape closes open panels (minigames, dragon, santa, milk selector)
+		// Announce when Ctrl+S saves the game
+		document.addEventListener('keydown', function(e) {
+			if (e.ctrlKey && e.key === 's') {
+				MOD.announce('Game saved.');
+			}
+		});
+		// Escape closes open panels (menus, minigames, dragon, santa, milk selector)
 		document.addEventListener('keydown', function(e) {
 			if (e.key === 'Escape') {
+				// Check prompts first (confirmations, dialogs)
+				if (Game.promptOn && !Game.promptNoClose) {
+					Game.ClosePrompt();
+					e.preventDefault();
+					return;
+				}
+				// Check menus (stats, options, info) — use Game.onMenu since
+				// NVDA virtual cursor doesn't reliably set focus inside #menu
+				if (Game.onMenu !== '') {
+					var names = {stats: 'Statistics', prefs: 'Options', log: 'Info'};
+					var buttons = {stats: 'statsButton', prefs: 'prefsButton', log: 'logButton'};
+					var menuName = names[Game.onMenu] || Game.onMenu;
+					var btnId = buttons[Game.onMenu];
+					Game.ShowMenu(Game.onMenu); // pass current menu to toggle it off
+					// Force NVDA virtual cursor to the menu button:
+					// blur first, then focus after DOM settles
+					if (document.activeElement) document.activeElement.blur();
+					setTimeout(function() {
+						if (btnId) {
+							var btn = l(btnId);
+							if (btn) {
+								btn.setAttribute('tabindex', '-1');
+								btn.focus();
+								btn.setAttribute('tabindex', '0');
+							}
+						}
+					}, 100);
+					Game.mods['nvda accessibility'].announce(menuName + ' menu closed.');
+					e.preventDefault();
+					return;
+				}
 				var el = document.activeElement;
 				if (!el) return;
 				// Check minigame panels
@@ -167,11 +214,115 @@ Game.registerMod("nvda accessibility", {
 				};
 			})(Game.ObjectsById[bId]);
 		}
+		// Wrap Game.ShowMenu to announce menu open/close
+		var origShowMenu = Game.ShowMenu;
+		Game.ShowMenu = function(what) {
+			var wasClosed = Game.onMenu === '';
+			origShowMenu.apply(this, arguments);
+			if (Game.onMenu !== '') {
+				var names = {stats: 'Statistics', prefs: 'Options', log: 'Info'};
+				MOD.announce((names[Game.onMenu] || Game.onMenu) + ' menu opened.');
+			}
+		};
+		// Wrap Game.Prompt to make prompts accessible to screen readers
+		var origPrompt = Game.Prompt;
+		Game.Prompt = function(content, options, updateFunc, style) {
+			origPrompt.apply(this, arguments);
+			// Enhance the prompt for screen readers after the DOM is built
+			setTimeout(function() {
+				var promptWrap = l('prompt');
+				var promptContent = l('promptContent');
+				if (promptWrap) {
+					promptWrap.setAttribute('role', 'dialog');
+					promptWrap.setAttribute('aria-modal', 'true');
+				}
+				// Build readable text from prompt content
+				var text = '';
+				if (promptContent) {
+					text = MOD.stripHtml(promptContent.innerHTML);
+				}
+				// Label and make option buttons accessible
+				var optionLinks = promptContent ? promptContent.parentElement.querySelectorAll('a.option') : [];
+				for (var i = 0; i < optionLinks.length; i++) {
+					optionLinks[i].setAttribute('role', 'button');
+					optionLinks[i].setAttribute('tabindex', '0');
+					if (!optionLinks[i].dataset.a11yEnhanced) {
+						optionLinks[i].dataset.a11yEnhanced = 'true';
+						optionLinks[i].addEventListener('keydown', function(e) {
+							if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); this.click(); }
+						});
+					}
+				}
+				// Focus the heading if present, otherwise first option
+				var heading = promptContent ? promptContent.querySelector('h3') : null;
+				if (heading) {
+					heading.setAttribute('tabindex', '-1');
+					heading.focus();
+				} else if (optionLinks.length > 0) {
+					optionLinks[0].focus();
+				}
+			}, 100);
+		};
+		// Suppress visual notifications that are redundant with our live region announcements
+		// (achievements, upgrade unlocks) while keeping startup notifications
+		// (welcome back, seasons, sugar lumps, etc.)
+		var origNotifyGlobal = Game.Notify;
+		Game.Notify = function(title, desc, pic, quick, noLog) {
+			var t = (title || '');
+			var d = (desc || '');
+			// Suppress achievement unlock notifications (announced via live region)
+			if (t === loc("Achievement unlocked")) { if (!noLog) Game.AddToLog('<b>'+t+'</b> | '+d); return; }
+			// Suppress upgrade unlock notifications (announced via live region)
+			if (d.indexOf(loc("You've unlocked a new upgrade.")) >= 0) { if (!noLog) Game.AddToLog('<b>'+t+'</b> | '+d); return; }
+			// Announce research notifications via live region
+			if (t === loc("Research has begun")) { MOD.announce(t + '. ' + MOD.stripHtml(d)); }
+			if (t === loc("Research complete")) { MOD.announceUrgent(t + '. ' + MOD.stripHtml(d)); }
+			origNotifyGlobal.call(this, title, desc, pic, quick, noLog);
+		};
+		// Wrap Game.UpdateMenu to suppress rebuilds while a menu is open and already enhanced
+		// Game.UpdateMenu() rebuilds menu innerHTML every 5 seconds, destroying NVDA's focus position
+		var origUpdateMenu = Game.UpdateMenu;
+		Game.UpdateMenu = function() {
+			if (Game.onMenu === 'stats' || Game.onMenu === 'prefs' || Game.onMenu === 'log') {
+				var menu = l('menu');
+				if (menu) {
+					var firstTitle = menu.querySelector('.subsection > .title');
+					if (firstTitle && firstTitle.getAttribute('role') === 'heading') {
+						// Menu is already enhanced — skip rebuild to preserve screen reader focus
+						return;
+					}
+				}
+			}
+			origUpdateMenu.apply(this, arguments);
+		};
 		// Wrap Game.RebuildUpgrades to immediately re-label upgrades after DOM rebuild
 		var origRebuildUpgrades = Game.RebuildUpgrades;
 		Game.RebuildUpgrades = function() {
+			// Save focused upgrade ID before DOM rebuild
+			var focusedId = null;
+			var ae = document.activeElement;
+			if (ae && ae.dataset && ae.dataset.id) {
+				var containers = [l('upgrades'), l('toggleUpgrades'), l('techUpgrades'), l('vaultUpgrades')];
+				for (var ci = 0; ci < containers.length; ci++) {
+					if (containers[ci] && containers[ci].contains(ae)) {
+						focusedId = ae.dataset.id;
+						break;
+					}
+				}
+			}
 			origRebuildUpgrades.apply(this, arguments);
-			setTimeout(function() { MOD.enhanceUpgradeShop(); }, 0);
+			setTimeout(function() {
+				MOD.enhanceUpgradeShop();
+				// Restore focus to the same upgrade if it still exists
+				if (focusedId) {
+					var containers = [l('upgrades'), l('toggleUpgrades'), l('techUpgrades'), l('vaultUpgrades')];
+					for (var ci = 0; ci < containers.length; ci++) {
+						if (!containers[ci]) continue;
+						var el = containers[ci].querySelector('[data-id="' + focusedId + '"]');
+						if (el) { el.focus(); break; }
+					}
+				}
+			}, 0);
 		};
 		// Wrap Game.ToggleSpecialMenu to create/remove accessible panels
 		var origToggleSpecialMenu = Game.ToggleSpecialMenu;
@@ -196,11 +347,22 @@ Game.registerMod("nvda accessibility", {
 		// Wrap Game.BuildAscendTree to re-label heavenly upgrades after tree rebuild
 		var origBuildAscendTree = Game.BuildAscendTree;
 		Game.BuildAscendTree = function(justBought) {
+			// Save focused heavenly upgrade ID before DOM rebuild
+			var focusedUpgradeId = null;
+			var ae = document.activeElement;
+			if (ae && ae.id && ae.id.indexOf('heavenlyUpgrade') === 0) {
+				focusedUpgradeId = ae.id;
+			}
 			origBuildAscendTree.apply(this, arguments);
 			setTimeout(function() {
 				MOD.cleanupAscensionTree();
 				MOD.enhanceHeavenlyUpgrades();
 				MOD.enhancePermanentUpgradeSlots();
+				// Restore focus to the same heavenly upgrade if it still exists
+				if (focusedUpgradeId) {
+					var el = l(focusedUpgradeId);
+					if (el) el.focus();
+				}
 			}, 50);
 		};
 		// Sugar lump state tracked every frame for click comparison
@@ -289,8 +451,8 @@ Game.registerMod("nvda accessibility", {
 				MOD.filterUnownedBuildings();
 			}, 100);
 		});
-		Game.Notify('Accessibility Enhanced', 'Version 13.2', [10, 0], 6);
-		this.announce('NVDA Accessibility mod version 13.2 loaded.');
+		Game.Notify('Accessibility Enhanced', 'Version 13.5', [10, 0], 6);
+		this.announce('NVDA Accessibility mod version 13.5 loaded.');
 	},
 	overrideDrawBuildings: function() {
 		var MOD = this;
@@ -414,31 +576,50 @@ Game.registerMod("nvda accessibility", {
 		if (l('srAnnouncer')) return;
 		var a = document.createElement('div');
 		a.id = 'srAnnouncer';
-		a.setAttribute('aria-live', 'polite');
-		a.setAttribute('aria-atomic', 'true');
-		a.style.cssText = 'position:absolute;left:-10000px;width:1px;height:1px;overflow:hidden;';
-		document.body.appendChild(a);
-	},
-	createAssertiveLiveRegion: function() {
-		if (l('srAnnouncerUrgent')) return;
-		var a = document.createElement('div');
-		a.id = 'srAnnouncerUrgent';
 		a.setAttribute('aria-live', 'assertive');
 		a.setAttribute('aria-atomic', 'true');
 		a.style.cssText = 'position:absolute;left:-10000px;width:1px;height:1px;overflow:hidden;';
 		document.body.appendChild(a);
+		// Initialize the announcement queue
+		this._announceQueue = [];
+		this._announceProcessing = false;
+	},
+	createAssertiveLiveRegion: function() {
+		// No longer needed — single live region handles both polite and urgent.
+		// Remove old element if it exists from a previous session.
+		var old = l('srAnnouncerUrgent');
+		if (old) old.remove();
+	},
+	_estimateReadTime: function(text) {
+		// Estimate how long NVDA takes to read a message.
+		// Screen readers typically read at ~200 words per minute (~3.3 words/sec).
+		// Minimum 1.5s so short messages aren't cut off.
+		var words = text.split(/\s+/).length;
+		return Math.max(1500, Math.ceil(words / 3.3 * 1000));
+	},
+	_processQueue: function() {
+		var MOD = this;
+		if (MOD._announceProcessing) return;
+		if (MOD._announceQueue.length === 0) return;
+		MOD._announceProcessing = true;
+		var msg = MOD._announceQueue.shift();
+		var a = l('srAnnouncer');
+		if (!a) { MOD._announceProcessing = false; return; }
+		// Clear then set after a tick so the screen reader detects the change
+		a.textContent = '';
+		setTimeout(function() {
+			a.textContent = msg;
+			var readTime = MOD._estimateReadTime(msg);
+			setTimeout(function() {
+				MOD._announceProcessing = false;
+				MOD._processQueue();
+			}, readTime);
+		}, 50);
 	},
 	announce: function(t) {
-		var MOD = this;
-		var a = l('srAnnouncer');
-		var u = l('srAnnouncerUrgent');
-		// Cancel any pending live region writes to prevent stacking
-		if (MOD._announceTimeout) { clearTimeout(MOD._announceTimeout); MOD._announceTimeout = null; }
-		if (MOD._announceUrgentTimeout) { clearTimeout(MOD._announceUrgentTimeout); MOD._announceUrgentTimeout = null; }
-		// Clear both regions so only the latest message persists
-		if (a) a.textContent = '';
-		if (u) u.textContent = '';
-		if (a) { MOD._announceTimeout = setTimeout(function() { a.textContent = t; MOD._announceTimeout = null; }, 50); }
+		// Polite: add to end of queue
+		this._announceQueue.push(t);
+		this._processQueue();
 	},
 	announceUrgent: function(t) {
 		var MOD = this;
@@ -447,15 +628,13 @@ Game.registerMod("nvda accessibility", {
 		if (t === MOD._lastUrgentText && now - MOD._lastUrgentTime < 500) return;
 		MOD._lastUrgentText = t;
 		MOD._lastUrgentTime = now;
-		var a = l('srAnnouncer');
-		var u = l('srAnnouncerUrgent');
-		// Cancel any pending live region writes to prevent stacking
-		if (MOD._announceTimeout) { clearTimeout(MOD._announceTimeout); MOD._announceTimeout = null; }
-		if (MOD._announceUrgentTimeout) { clearTimeout(MOD._announceUrgentTimeout); MOD._announceUrgentTimeout = null; }
-		// Clear both regions so only the latest message persists
-		if (a) a.textContent = '';
-		if (u) u.textContent = '';
-		if (u) { MOD._announceUrgentTimeout = setTimeout(function() { u.textContent = t; MOD._announceUrgentTimeout = null; }, 50); }
+		// Urgent: jump to front of queue
+		MOD._announceQueue.unshift(t);
+		// If currently processing, interrupt by resetting and processing immediately
+		if (MOD._announceProcessing) {
+			MOD._announceProcessing = false;
+		}
+		MOD._processQueue();
 	},
 	// Helper functions to prevent unnecessary DOM mutations
 	// Only update attributes/text if the value has actually changed
@@ -564,7 +743,23 @@ Game.registerMod("nvda accessibility", {
 						if (w.type === 1) reward *= 3; // Shiny wrinklers give 3x
 						w.hp = 0;
 						var rewardText = Beautify(reward);
-						MOD.announce('Popped wrinkler! Recovered ' + rewardText + ' cookies.');
+						MOD.announce('Recovered ' + rewardText + ' cookies.');
+						// Update labels immediately so hidden slots are current
+						MOD.updateWrinklerLabels();
+						// Move focus to next visible wrinkler, or "no wrinklers" message
+						var nextFound = false;
+						for (var ni = 0; ni < MOD.wrinklerOverlays.length; ni++) {
+							var nBtn = MOD.wrinklerOverlays[ni];
+							if (nBtn && nBtn.parentNode && nBtn.parentNode.style.display !== 'none') {
+								nBtn.focus();
+								nextFound = true;
+								break;
+							}
+						}
+						if (!nextFound) {
+							var noMsg = l('a11yNoWrinklersMsg');
+							if (noMsg) noMsg.focus();
+						}
 					}
 				});
 				btn.addEventListener('keydown', function(e) {
@@ -843,6 +1038,10 @@ Game.registerMod("nvda accessibility", {
 		if (!lc) return;
 		lc.setAttribute('role', 'button');
 		lc.setAttribute('tabindex', '0');
+		// Hide child elements (icons, count div) so only aria-label is read
+		for (var ci = 0; ci < lc.children.length; ci++) {
+			lc.children[ci].setAttribute('aria-hidden', 'true');
+		}
 		if (!lc.dataset.a11yEnhanced) {
 			lc.dataset.a11yEnhanced = 'true';
 			lc.addEventListener('keydown', function(e) {
@@ -1275,6 +1474,14 @@ Game.registerMod("nvda accessibility", {
 		}
 		lb.setAttribute('aria-label', lbl);
 	},
+	enhanceMenuHeadings: function(menu) {
+		if (!menu) return;
+		var titles = menu.querySelectorAll('.subsection > .title');
+		for (var i = 0; i < titles.length; i++) {
+			titles[i].setAttribute('role', 'heading');
+			titles[i].setAttribute('aria-level', '3');
+		}
+	},
 	enhanceStatsMenu: function() {
 		var MOD = this, menu = l('menu');
 		if (!menu) return;
@@ -1283,27 +1490,41 @@ Game.registerMod("nvda accessibility", {
 		var firstTitle = menu.querySelector('.subsection > .title');
 		if (!firstTitle || firstTitle.getAttribute('role') === 'heading') return;
 
-		MOD.labelStatisticsContent();
-		MOD.enhanceStatsStructure();
+		// Apply headings immediately so the guard triggers on next frame
+		MOD.enhanceMenuHeadings(menu);
+		// Defer all other work to avoid blocking the initial render
+		setTimeout(function() {
+			MOD.enhanceStatsStructure();
+			MOD.labelStatisticsContent();
+		}, 50);
+	},
+	enhanceOptionsMenu: function() {
+		var MOD = this, menu = l('menu');
+		if (!menu) return;
+		var firstTitle = menu.querySelector('.subsection > .title');
+		if (!firstTitle || firstTitle.getAttribute('role') === 'heading') return;
+		MOD.enhanceMenuHeadings(menu);
+	},
+	enhanceInfoMenu: function() {
+		var MOD = this, menu = l('menu');
+		if (!menu) return;
+		var firstTitle = menu.querySelector('.subsection > .title');
+		if (!firstTitle || firstTitle.getAttribute('role') === 'heading') return;
+		MOD.enhanceMenuHeadings(menu);
 	},
 	enhanceStatsStructure: function() {
 		var MOD = this, menu = l('menu');
 		if (!menu) return;
 
-		// Section headings
-		var titles = menu.querySelectorAll('.subsection > .title');
-		for (var i = 0; i < titles.length; i++) {
-			titles[i].setAttribute('role', 'heading');
-			titles[i].setAttribute('aria-level', '2');
-		}
-
 		// Trophy summaries — milk flavors
 		if (Game.Milks && Game.Milks.length > 0) {
 			var milkListings = menu.querySelectorAll('#statsAchievs .listing');
 			var milkLabel = loc ? loc("Milk flavors unlocked:") : "Milk flavors unlocked:";
+			var milkLabelListing = null;
 			var milkParent = null;
 			for (var i = 0; i < milkListings.length; i++) {
 				if (milkListings[i].textContent.indexOf(milkLabel) !== -1) {
+					milkLabelListing = milkListings[i];
 					milkParent = milkListings[i].nextElementSibling;
 					break;
 				}
@@ -1315,6 +1536,8 @@ Game.registerMod("nvda accessibility", {
 					if (Game.milkProgress >= i) milkNames.push(Game.Milks[i].name);
 				}
 				if (milkNames.length > 0) {
+					// Hide original label listing and trophy icons
+					milkLabelListing.setAttribute('aria-hidden', 'true');
 					for (var i = 0; i < milkTrophies.length; i++) {
 						milkTrophies[i].setAttribute('aria-hidden', 'true');
 					}
@@ -1344,6 +1567,8 @@ Game.registerMod("nvda accessibility", {
 					santaNames.push(Game.santaLevels[j]);
 				}
 				if (santaNames.length > 0) {
+					// Hide original label listing and trophy icons
+					prev.setAttribute('aria-hidden', 'true');
 					for (var j = 0; j < santaTrophies.length; j++) {
 						santaTrophies[j].setAttribute('aria-hidden', 'true');
 					}
@@ -1377,6 +1602,8 @@ Game.registerMod("nvda accessibility", {
 					}
 				}
 				if (dragonNames.length > 0) {
+					// Hide original label listing and trophy icons
+					prev.setAttribute('aria-hidden', 'true');
 					for (var j = 0; j < dragonTrophies.length; j++) {
 						dragonTrophies[j].setAttribute('aria-hidden', 'true');
 					}
@@ -1388,6 +1615,23 @@ Game.registerMod("nvda accessibility", {
 					d.parentNode.insertBefore(el, d.nextSibling);
 				}
 				break;
+			}
+		}
+
+		// Make .price listings readable — the .price div uses a :before pseudo-element
+		// for an icon which can interfere with screen reader parsing
+		var priceListings = menu.querySelectorAll('.listing');
+		for (var i = 0; i < priceListings.length; i++) {
+			var priceEl = priceListings[i].querySelector('.price');
+			if (priceEl) {
+				// Build a clean aria-label from the listing's text content
+				var listingText = priceListings[i].textContent.replace(/\s+/g, ' ').trim();
+				priceListings[i].setAttribute('aria-label', listingText);
+				priceListings[i].setAttribute('tabindex', '0');
+				// Hide children so NVDA only reads the aria-label
+				for (var ci = 0; ci < priceListings[i].children.length; ci++) {
+					priceListings[i].children[ci].setAttribute('aria-hidden', 'true');
+				}
 			}
 		}
 
@@ -1419,11 +1663,12 @@ Game.registerMod("nvda accessibility", {
 		if (!menu || Game.onMenu !== 'stats') return;
 		if (MOD.statsLabelingInProgress) return;
 		MOD.statsLabelingInProgress = true;
-		// Process in batches to avoid blocking
+		// Process in batches using requestAnimationFrame to avoid blocking the UI
 		var crates = menu.querySelectorAll('.crate:not([data-a11y-stats])');
 		var index = 0;
-		var batchSize = 20;
+		var batchSize = 50;
 		function processBatch() {
+			if (Game.onMenu !== 'stats') { MOD.statsLabelingInProgress = false; return; }
 			var end = Math.min(index + batchSize, crates.length);
 			for (var i = index; i < end; i++) {
 				var crate = crates[i];
@@ -1438,23 +1683,25 @@ Game.registerMod("nvda accessibility", {
 			}
 			index = end;
 			if (index < crates.length) {
-				setTimeout(processBatch, 10);
+				requestAnimationFrame(processBatch);
 			} else {
 				MOD.statsLabelingInProgress = false;
 			}
 		}
-		processBatch();
+		// Defer first batch to let the menu render first
+		requestAnimationFrame(processBatch);
 	},
 	labelStatsAchievementIcon: function(icon, ach, isShadow) {
 		if (!icon || !ach) return;
 		var MOD = this;
 		var lbl = '';
+		var desc = '';
 		if (ach.won) {
 			// Unlocked - show full info
 			var n = ach.dname || ach.name;
-			var d = MOD.stripHtml(ach.desc || '');
 			var pool = (isShadow || ach.pool === 'shadow') ? ' [Shadow Achievement]' : '';
-			lbl = n + '. Unlocked.' + pool + ' ' + d;
+			lbl = n + '. Unlocked.' + pool;
+			desc = MOD.stripHtml(ach.desc || '');
 		} else {
 			// Locked - hide name and description
 			lbl = '???. Locked.';
@@ -1466,9 +1713,30 @@ Game.registerMod("nvda accessibility", {
 		}
 		// Also set aria-label directly
 		icon.setAttribute('aria-label', lbl);
+		icon.removeAttribute('aria-describedby');
 		if (icon.tagName !== 'BUTTON') {
 			if (!icon.getAttribute('role')) icon.setAttribute('role', 'button');
 			if (!icon.getAttribute('tabindex')) icon.setAttribute('tabindex', '0');
+		}
+		// Add separate info div after the icon for description
+		var infoId = 'a11y-stats-ach-info-' + ach.id;
+		var infoEl = l(infoId);
+		if (desc) {
+			if (!infoEl) {
+				infoEl = document.createElement('div');
+				infoEl.id = infoId;
+				infoEl.setAttribute('tabindex', '0');
+				infoEl.setAttribute('role', 'note');
+				if (icon.nextSibling) {
+					icon.parentNode.insertBefore(infoEl, icon.nextSibling);
+				} else {
+					icon.parentNode.appendChild(infoEl);
+				}
+			}
+			infoEl.textContent = desc;
+			infoEl.setAttribute('aria-label', desc);
+		} else if (infoEl) {
+			infoEl.remove();
 		}
 	},
 	labelStatsUpgradeIcon: function(icon, upg, isHeavenly) {
@@ -1481,8 +1749,8 @@ Game.registerMod("nvda accessibility", {
 		var MOD = this;
 		// Statistics menu only shows owned upgrades, so just label them
 		var n = upg.dname || upg.name;
-		var d = MOD.stripHtml(upg.desc || '');
-		var lbl = n + '. ' + d;
+		var desc = MOD.stripHtml(upg.desc || '');
+		var lbl = n + '.';
 		// Populate the aria-labelledby target label (created by game when screenreader=1)
 		var ariaLabel = l('ariaReader-upgrade-' + upg.id);
 		if (ariaLabel) {
@@ -1490,9 +1758,30 @@ Game.registerMod("nvda accessibility", {
 		}
 		// Also set aria-label directly
 		icon.setAttribute('aria-label', lbl);
+		icon.removeAttribute('aria-describedby');
 		if (icon.tagName !== 'BUTTON') {
 			if (!icon.getAttribute('role')) icon.setAttribute('role', 'button');
 			if (!icon.getAttribute('tabindex')) icon.setAttribute('tabindex', '0');
+		}
+		// Add separate info div after the icon for description
+		var infoId = 'a11y-stats-upg-info-' + upg.id;
+		var infoEl = l(infoId);
+		if (desc) {
+			if (!infoEl) {
+				infoEl = document.createElement('div');
+				infoEl.id = infoId;
+				infoEl.setAttribute('tabindex', '0');
+				infoEl.setAttribute('role', 'note');
+				if (icon.nextSibling) {
+					icon.parentNode.insertBefore(infoEl, icon.nextSibling);
+				} else {
+					icon.parentNode.appendChild(infoEl);
+				}
+			}
+			infoEl.textContent = desc;
+			infoEl.setAttribute('aria-label', desc);
+		} else if (infoEl) {
+			infoEl.remove();
 		}
 	},
 	setupNewsTicker: function() {
@@ -1737,13 +2026,13 @@ Game.registerMod("nvda accessibility", {
 		for (var n in cur) {
 			if (n === 'Cookie storm') continue;
 			if (!MOD.lastBuffs[n]) {
-				// New buff
+				// New buff — use urgent so it isn't dropped by other announcements
 				var duration = Math.ceil(cur[n].maxTime / Game.fps);
-				MOD.announce(n + ' started for ' + duration + ' seconds!');
+				MOD.announceUrgent(n + ' started for ' + duration + ' seconds!');
 			} else if (cur[n].time > MOD.lastBuffs[n].time) {
 				// Buff was refreshed — time went up instead of the normal decrease
 				var duration = Math.ceil(cur[n].maxTime / Game.fps);
-				MOD.announce(n + ' refreshed for ' + duration + ' seconds!');
+				MOD.announceUrgent(n + ' refreshed for ' + duration + ' seconds!');
 			}
 		}
 		// Announce ended buffs
@@ -1836,6 +2125,9 @@ Game.registerMod("nvda accessibility", {
 	},
 	enhanceStoreControls: function() {
 		var MOD = this;
+		// Ensure the storeBulk container doesn't clip buttons for screen readers
+		var storeBulk = l('storeBulk');
+		if (storeBulk) storeBulk.style.overflow = 'visible';
 		// Buy/Sell toggles
 		var storeBulkBuy = l('storeBulkBuy');
 		var storeBulkSell = l('storeBulkSell');
@@ -1870,16 +2162,25 @@ Game.registerMod("nvda accessibility", {
 			}
 		}
 		// Amount multipliers (1, 10, 100, Max)
+		// Note: the game hides "Max" in buy mode (visibility:hidden) — only available in sell mode
 		var buyBulk = Game.buyBulk;
+		var isSellMode = Game.buyMode === -1;
 		var amounts = [
 			{ id: 'storeBulk1', label: 'Buy or sell 1 at a time', value: 1 },
 			{ id: 'storeBulk10', label: 'Buy or sell 10 at a time', value: 10 },
 			{ id: 'storeBulk100', label: 'Buy or sell 100 at a time', value: 100 },
-			{ id: 'storeBulkMax', label: 'Buy or sell maximum amount', value: -1 }
+			{ id: 'storeBulkMax', label: 'Sell maximum amount', value: -1 }
 		];
 		amounts.forEach(function(amt) {
 			var btn = l(amt.id);
 			if (btn) {
+				// Hide "Max" from screen reader when in buy mode (game hides it visually)
+				if (amt.id === 'storeBulkMax' && !isSellMode) {
+					MOD.setAttributeIfChanged(btn, 'aria-hidden', 'true');
+					btn.setAttribute('tabindex', '-1');
+					return;
+				}
+				btn.removeAttribute('aria-hidden');
 				var label = (buyBulk === amt.value ? 'Selected, ' : '') + amt.label;
 				MOD.setAttributeIfChanged(btn, 'aria-label', label);
 				MOD.setAttributeIfChanged(btn, 'role', 'button');
@@ -2267,7 +2568,7 @@ Game.registerMod("nvda accessibility", {
 				if (!toolEl) continue;
 				var lbl = '';
 				if (toolKey === 'info') {
-					lbl = 'Garden information and tips';
+					lbl = 'Garden effects and tips';
 				} else if (toolKey === 'harvestAll') {
 					lbl = 'Harvest all plants. Harvests all plants including immature ones';
 					// Wrap harvestAll to announce what was harvested with maturity stages
@@ -2333,7 +2634,7 @@ Game.registerMod("nvda accessibility", {
 			var toolEl = l('gardenTool-' + i);
 			if (toolEl && !toolEl.getAttribute('aria-label')) {
 				var labels = [
-					'Garden information and tips',
+					'Garden effects and tips',
 					'Harvest all plants. Harvests all plants including immature ones',
 					g.freeze ? 'Unfreeze garden (currently frozen)' : 'Freeze garden',
 					'Sacrifice garden for sugar lumps'
@@ -2593,7 +2894,7 @@ Game.registerMod("nvda accessibility", {
 		// H2 Title for navigation
 		var title = document.createElement('h2');
 		title.id = 'a11yGardenHeading';
-		title.textContent = 'Garden Information - Level ' + (parseInt(g.parent.level) || 0);
+		title.textContent = 'Garden Effects and Tips - Level ' + (parseInt(g.parent.level) || 0);
 		title.style.cssText = 'color:#6c6;margin:0 0 10px 0;font-size:16px;';
 		panel.appendChild(title);
 
@@ -2791,7 +3092,7 @@ Game.registerMod("nvda accessibility", {
 
 		panel = document.createElement('div');
 		panel.id = 'a11yGardenInfoPanel';
-		panel.setAttribute('aria-label', 'Garden Information. Press Escape to close.');
+		panel.setAttribute('aria-label', 'Garden Effects and Tips. Press Escape to close.');
 		panel.style.cssText = 'background:#1a2a1a;border:2px solid #4a4;padding:15px;margin:10px 0;color:#cfc;font-size:13px;';
 
 		// Escape key handler to collapse
@@ -3203,7 +3504,7 @@ Game.registerMod("nvda accessibility", {
 		MOD.enhanceMinigameHeader(Game.Objects['Temple'], 'Pantheon', pan);
 		// Reorder DOM elements: slots first, then gods in order
 		var firstSlot = l('templeSlot0');
-		if (firstSlot && firstSlot.parentNode && !firstSlot.parentNode.dataset.a11yReordered) {
+		if (firstSlot && firstSlot.parentNode) {
 			var parent = firstSlot.parentNode;
 			// Move slots to the beginning (in reverse order so they end up 0, 1, 2)
 			for (var i = 2; i >= 0; i--) {
@@ -3245,8 +3546,7 @@ Game.registerMod("nvda accessibility", {
 					}
 				}
 			}
-			parent.dataset.a11yReordered = 'true';
-		}
+			}
 		// Enhance spirit slots
 		for (var i = 0; i < 3; i++) {
 			var slotEl = l('templeSlot' + i);
@@ -3339,6 +3639,9 @@ Game.registerMod("nvda accessibility", {
 			if (!godEl) continue;
 			var slotted = pan.slot.indexOf(god.id);
 			var descParts = [];
+			if (god.activeDescFunc) {
+				try { descParts.push(MOD.stripHtml(god.activeDescFunc())); } catch(e) {}
+			}
 			if (god.descBefore) descParts.push(MOD.stripHtml(god.descBefore));
 			if (god.descAfter) descParts.push(MOD.stripHtml(god.descAfter));
 			var cleanDesc = descParts.join('. ').replace(/ +\./g, '.').replace(/ +,/g, ',');
@@ -3496,7 +3799,8 @@ Game.registerMod("nvda accessibility", {
 		var maxMagic = Math.floor(grim.magicM);
 		var spellsCast = grim.spellsCast || 0;
 		var spellsCastTotal = grim.spellsCastTotal || 0;
-		var magicText = 'Magic: ' + currentMagic + ' / ' + maxMagic + '. Spells cast: ' + spellsCast + ', total: ' + spellsCastTotal + '.';
+		var magicRegen = (grim.magic < grim.magicM) ? ', recovering ' + Beautify((grim.magicPS || 0) * Game.fps, 2) + ' per second' : '';
+		var magicText = 'Magic: ' + currentMagic + ' / ' + maxMagic + magicRegen + '. Spells cast: ' + spellsCast + ', total: ' + spellsCastTotal + '.';
 
 		// Find the first spell to determine where spells are located
 		var firstSpell = document.querySelector('.grimoireSpell');
@@ -3667,6 +3971,12 @@ Game.registerMod("nvda accessibility", {
 		// Hide original tick timer from screen readers
 		var origBankNextTick = l('bankNextTick');
 		if (origBankNextTick) origBankNextTick.setAttribute('aria-hidden', 'true');
+		// Hide visual-only graph icons from screen readers
+		if (bankContent) {
+			bankContent.querySelectorAll('.bankGraphIcon').forEach(function(icon) {
+				icon.setAttribute('aria-hidden', 'true');
+			});
+		}
 		// Enhance each stock row
 		document.querySelectorAll('.bankGood').forEach(function(r) {
 			var id = r.id.replace('bankGood-', ''), good = mkt.goodsById[id];
@@ -3688,7 +3998,8 @@ Game.registerMod("nvda accessibility", {
 			var trend = delta > 0 ? 'Rising' : (delta < 0 ? 'Falling' : 'Stable');
 			trend += ' ' + (delta >= 0 ? '+' : '') + delta + '%';
 			var maxStock = mkt.getGoodMaxStock(good);
-			var headingText = goodName + ', ' + good.stock + ' of ' + maxStock + ' shares, $' + Beautify(mkt.getGoodPrice(good), 2) + ', ' + trend;
+			var lastBoughtAt = (good.prev && good.stock > 0) ? ', last bought at $' + Beautify(good.prev, 2) + ' each' : '';
+			var headingText = goodName + ', ' + good.stock + ' of ' + maxStock + ' shares, $' + Beautify(mkt.getGoodPrice(good), 2) + ', ' + trend + lastBoughtAt;
 			MOD.setTextIfChanged(heading, headingText);
 			// Stock info div with value and warehouse details
 			var goodPrice = mkt.getGoodPrice(good);
@@ -3709,9 +4020,9 @@ Game.registerMod("nvda accessibility", {
 				var companyText = MOD.stripHtml(good.desc);
 				MOD.ensureInfoNote(companyInfoId, companyText, l('a11y-stock-info-' + id));
 			}
-			// Aria-hide visual-only .bankSymbol elements
-			r.querySelectorAll('.bankSymbol').forEach(function(sym) {
-				sym.setAttribute('aria-hidden', 'true');
+			// Aria-hide visual-only .bankSymbol and .icon elements
+			r.querySelectorAll('.bankSymbol, .icon').forEach(function(el) {
+				el.setAttribute('aria-hidden', 'true');
 			});
 			// Enhance view/hide graph toggle
 			var viewHideBtn = l('bankGood-' + id + '-viewHide');
@@ -3741,13 +4052,12 @@ Game.registerMod("nvda accessibility", {
 				if (isSell) {
 					var sellPart = suffix.substring(1);
 					var sellQty;
-					var boughtAtInfo = (good.prev && good.stock > 0) ? ', bought at $' + Beautify(good.prev, 2) + ' each' : '';
 					if (sellPart === 'All') {
 						sellQty = good.stock;
 						if (sellQty > 0) {
 							var revenue = Game.cookiesPsRawHighest * price * sellQty;
 							var sellTime = Game.sayTime(price * sellQty * Game.fps, -1);
-							label = 'Sell all ' + goodName + ', ' + sellQty + ' shares, earns ' + Beautify(revenue) + ' cookies' + boughtAtInfo;
+							label = 'Sell all ' + goodName + ', ' + sellQty + ' shares, earns ' + Beautify(revenue) + ' cookies';
 							if (sellTime) label += ', worth ' + sellTime + ' of CpS';
 						} else {
 							label = 'Sell all ' + goodName + ', no shares owned';
@@ -3758,7 +4068,7 @@ Game.registerMod("nvda accessibility", {
 						if (actualSellQty > 0) {
 							var revenue = Game.cookiesPsRawHighest * price * actualSellQty;
 							var sellTime = Game.sayTime(price * actualSellQty * Game.fps, -1);
-							label = 'Sell ' + sellPart + ' ' + goodName + ', earns ' + Beautify(revenue) + ' cookies' + boughtAtInfo;
+							label = 'Sell ' + sellPart + ' ' + goodName + ', earns ' + Beautify(revenue) + ' cookies';
 							if (sellTime) label += ', worth ' + sellTime + ' of CpS';
 						} else {
 							label = 'Sell ' + sellPart + ' ' + goodName + ', no shares owned';
@@ -3767,14 +4077,13 @@ Game.registerMod("nvda accessibility", {
 					if (good.last === 1) label += ', unavailable this tick';
 				} else {
 					var costPerUnit = Game.cookiesPsRawHighest * price * overhead;
-					var boughtAtBuyInfo = (good.prev && good.stock > 0) ? ', last bought at $' + Beautify(good.prev, 2) + ' each' : '';
 					if (suffix === 'Max') {
 						var affordable = costPerUnit > 0 ? Math.floor(Game.cookies / costPerUnit) : 0;
 						var buyQty = Math.min(affordable, spaceLeft);
 						if (buyQty > 0) {
 							var cost = costPerUnit * buyQty;
 							var buyTime = Game.sayTime(price * overhead * buyQty * Game.fps, -1);
-							label = 'Buy maximum ' + goodName + ', ' + buyQty + ' shares, costs ' + Beautify(cost) + ' cookies' + boughtAtBuyInfo;
+							label = 'Buy maximum ' + goodName + ', ' + buyQty + ' shares, costs ' + Beautify(cost) + ' cookies';
 							if (buyTime) label += ', worth ' + buyTime + ' of CpS';
 						} else if (spaceLeft <= 0) {
 							label = 'Buy maximum ' + goodName + ', warehouse full';
@@ -3787,12 +4096,12 @@ Game.registerMod("nvda accessibility", {
 						if (actualBuyQty > 0 && Game.cookies >= costPerUnit * actualBuyQty) {
 							var cost = costPerUnit * actualBuyQty;
 							var buyTime = Game.sayTime(price * overhead * actualBuyQty * Game.fps, -1);
-							label = 'Buy ' + suffix + ' ' + goodName + ', costs ' + Beautify(cost) + ' cookies' + boughtAtBuyInfo;
+							label = 'Buy ' + suffix + ' ' + goodName + ', costs ' + Beautify(cost) + ' cookies';
 							if (buyTime) label += ', worth ' + buyTime + ' of CpS';
 						} else if (spaceLeft <= 0) {
 							label = 'Buy ' + suffix + ' ' + goodName + ', warehouse full';
 						} else {
-							label = 'Buy ' + suffix + ' ' + goodName + ', costs ' + Beautify(costPerUnit * actualBuyQty) + ' cookies, cannot afford' + boughtAtBuyInfo;
+							label = 'Buy ' + suffix + ' ' + goodName + ', costs ' + Beautify(costPerUnit * actualBuyQty) + ' cookies, cannot afford';
 						}
 					}
 					if (good.last === 2) label += ', unavailable this tick';
@@ -4340,18 +4649,25 @@ Game.registerMod("nvda accessibility", {
 		// Clear ariaReader label so game's crateTooltip text can't stick
 		var a = l('ariaReader-upgrade-' + u.id);
 		if (a) a.innerHTML = '';
-		// Also add a visible/focusable text element below the upgrade (skip for toggles - they have click menus)
-		if (u.pool !== 'toggle') {
+		// Also add a visible/focusable text element below the upgrade
+		// Skip milk selector — it's hidden and has a dedicated panel
+		if ((u.name || '') !== 'Milk selector') {
 			MOD.ensureUpgradeInfoText(u);
 		}
 	},
 	ensureUpgradeInfoText: function(u) {
 		var MOD = this;
-		if (!u || u.bought) return;
-		// Find the upgrade crate element in the upgrades container
-		var upgradesContainer = l('upgrades');
-		if (!upgradesContainer) return;
-		var crate = upgradesContainer.querySelector('[data-id="' + u.id + '"]');
+		if (!u) return;
+		// Skip bought non-toggle upgrades (toggle upgrades like Elder Pledge can be re-activated)
+		if (u.bought && u.pool !== 'toggle') return;
+		// Find the upgrade crate element
+		var crate = null;
+		var containers = [l('upgrades'), l('techUpgrades'), l('toggleUpgrades')];
+		for (var ci = 0; ci < containers.length; ci++) {
+			if (!containers[ci]) continue;
+			crate = containers[ci].querySelector('[data-id="' + u.id + '"]');
+			if (crate) break;
+		}
 		if (!crate) return;
 		// Check if info text already exists
 		var textId = 'a11y-upgrade-info-' + u.id;
@@ -4479,8 +4795,7 @@ Game.registerMod("nvda accessibility", {
 		var textId = 'a11y-garden-seed-info-' + seedId;
 		var existingText = l(textId);
 		var infoText = '';
-		var typeMutText = '';
-
+	
 		if (!plant.unlocked) {
 			// Locked seeds are consolidated into a single summary element
 			if (existingText) existingText.parentNode.removeChild(existingText);
@@ -4504,26 +4819,11 @@ Game.registerMod("nvda accessibility", {
 			var dragonBoost = 1 / (1 + 0.05 * Game.auraMult('Supreme Intellect'));
 			var avgTick = plant.ageTick + plant.ageTickR / 2;
 			var matFrames = ((100 / avgTick) * (plant.mature / 100) * dragonBoost * g.stepT) * 30;
-			var matTicks = Math.ceil((100 / (avgTick / dragonBoost)) * (plant.mature / 100));
-			if (plant.ageTickR > 0) {
-				var fastTick = plant.ageTick + plant.ageTickR;
-				var slowTick = plant.ageTick;
-				var fastFrames = ((100 / fastTick) * (plant.mature / 100) * dragonBoost * g.stepT) * 30;
-				var slowFrames = ((100 / slowTick) * (plant.mature / 100) * dragonBoost * g.stepT) * 30;
-				var matLine = 'Maturation: ' + Game.sayTime(matFrames, -1) + ' (' + Game.sayTime(fastFrames, -1) + ' to ' + Game.sayTime(slowFrames, -1) + ', ' + matTicks + ' tick' + (matTicks !== 1 ? 's' : '') + ').';
-			} else {
-				var matLine = 'Maturation: ' + Game.sayTime(matFrames, -1) + ' (' + matTicks + ' tick' + (matTicks !== 1 ? 's' : '') + ').';
-			}
+			var approx = plant.ageTickR > 0 ? 'about ' : '';
+			var matLine = 'Maturation: ' + approx + Game.sayTime(matFrames, -1) + '.';
 			if (!plant.immortal) {
 				var lifeFrames = ((100 / avgTick) * dragonBoost * g.stepT) * 30;
-				var lifeTicks = Math.ceil(100 / (avgTick / dragonBoost));
-				if (plant.ageTickR > 0) {
-					var fastLife = ((100 / fastTick) * dragonBoost * g.stepT) * 30;
-					var slowLife = ((100 / slowTick) * dragonBoost * g.stepT) * 30;
-					matLine += ' Lifespan: ' + Game.sayTime(lifeFrames, -1) + ' (' + Game.sayTime(fastLife, -1) + ' to ' + Game.sayTime(slowLife, -1) + ', ' + lifeTicks + ' tick' + (lifeTicks !== 1 ? 's' : '') + ').';
-				} else {
-					matLine += ' Lifespan: ' + Game.sayTime(lifeFrames, -1) + ' (' + lifeTicks + ' tick' + (lifeTicks !== 1 ? 's' : '') + ').';
-				}
+				matLine += ' Lifespan: ' + approx + Game.sayTime(lifeFrames, -1) + '.';
 			} else {
 				matLine += ' Immortal.';
 			}
@@ -4535,11 +4835,38 @@ Game.registerMod("nvda accessibility", {
 			}
 
 			infoText = lines.join(' ');
+		}
 
-			// Type and mutations — collected separately for their own info div
-			var typeMutLines = [];
-			if (plant.weed) typeMutLines.push('Type: Weed.');
-			if (plant.fungus) typeMutLines.push('Type: Fungus.');
+		if (existingText) {
+			existingText.textContent = infoText;
+			existingText.setAttribute('aria-label', infoText);
+		} else {
+			var infoDiv = document.createElement('div');
+			infoDiv.id = textId;
+			infoDiv.className = 'a11y-seed-info';
+			infoDiv.style.cssText = 'display:block;padding:6px;margin:4px 0;font-size:12px;color:#ccc;background:#1a1a1a;border:1px solid #444;';
+			infoDiv.setAttribute('tabindex', '0');
+			infoDiv.setAttribute('role', 'note');
+			infoDiv.setAttribute('aria-label', infoText);
+			infoDiv.textContent = infoText;
+			if (seedEl.nextSibling) {
+				seedEl.parentNode.insertBefore(infoDiv, seedEl.nextSibling);
+			} else {
+				seedEl.parentNode.appendChild(infoDiv);
+			}
+		}
+
+		// Clean up old separate quote element (now merged with type/mutations)
+		var oldQuoteEl = l('a11y-garden-seed-quote-' + seedId);
+		if (oldQuoteEl) oldQuoteEl.parentNode.removeChild(oldQuoteEl);
+
+		// Combined type, mutations, and flavor text in one div
+		var typeMutId = 'a11y-garden-seed-typemut-' + seedId;
+		var afterInfo = l(textId) || seedEl;
+		if (plant.unlocked) {
+			var extraLines = [];
+			if (plant.weed) extraLines.push('Type: Weed.');
+			if (plant.fungus) extraLines.push('Type: Fungus.');
 			if (plant.children && plant.children.length > 0) {
 				var unlockedChildren = [];
 				var lockedCount = 0;
@@ -4563,50 +4890,22 @@ Game.registerMod("nvda accessibility", {
 						if (unlockedChildren.length > 0) mutStr += ', ';
 						mutStr += lockedCount + ' locked';
 					}
-					typeMutLines.push(mutStr + '.');
+					extraLines.push(mutStr + '.');
 				}
 			}
-			typeMutText = typeMutLines.join(' ');
-		}
-
-		if (existingText) {
-			existingText.textContent = infoText;
-			existingText.setAttribute('aria-label', infoText);
-		} else {
-			var infoDiv = document.createElement('div');
-			infoDiv.id = textId;
-			infoDiv.className = 'a11y-seed-info';
-			infoDiv.style.cssText = 'display:block;padding:6px;margin:4px 0;font-size:12px;color:#ccc;background:#1a1a1a;border:1px solid #444;';
-			infoDiv.setAttribute('tabindex', '0');
-			infoDiv.setAttribute('role', 'note');
-			infoDiv.setAttribute('aria-label', infoText);
-			infoDiv.textContent = infoText;
-			if (seedEl.nextSibling) {
-				seedEl.parentNode.insertBefore(infoDiv, seedEl.nextSibling);
-			} else {
-				seedEl.parentNode.appendChild(infoDiv);
+			if (plant.q) {
+				extraLines.push(MOD.stripHtml(plant.q));
 			}
-		}
-
-		// Type and mutations as a separate element
-		var typeMutId = 'a11y-garden-seed-typemut-' + seedId;
-		var afterInfo = l(textId) || seedEl;
-		if (plant.unlocked && typeMutText) {
-			MOD.ensureInfoNote(typeMutId, typeMutText, afterInfo);
+			var extraText = extraLines.join(' ');
+			if (extraText) {
+				MOD.ensureInfoNote(typeMutId, extraText, afterInfo);
+			} else {
+				var existingExtra = l(typeMutId);
+				if (existingExtra) existingExtra.parentNode.removeChild(existingExtra);
+			}
 		} else {
-			var existingTypeMut = l(typeMutId);
-			if (existingTypeMut) existingTypeMut.parentNode.removeChild(existingTypeMut);
-		}
-
-		// Flavor quote as a separate element (like stock market company descriptions)
-		var quoteId = 'a11y-garden-seed-quote-' + seedId;
-		var afterTypeMut = l(typeMutId) || afterInfo;
-		if (plant.unlocked && plant.q) {
-			var quoteText = MOD.stripHtml(plant.q);
-			MOD.ensureInfoNote(quoteId, quoteText, afterTypeMut);
-		} else {
-			var existingQuote = l(quoteId);
-			if (existingQuote) existingQuote.parentNode.removeChild(existingQuote);
+			var existingExtra = l(typeMutId);
+			if (existingExtra) existingExtra.parentNode.removeChild(existingExtra);
 		}
 	},
 	// labelUpgradeCrate (store version) removed  - populateUpgradeLabel now handles store upgrade buttons directly
@@ -5083,14 +5382,50 @@ Game.registerMod("nvda accessibility", {
 		if (!cr) return;
 		// Check if this is a ghosted (locked/future) upgrade
 		var isGhosted = cr.classList.contains('ghosted');
+		// Build description text (effect + flavor)
+		var desc = '';
+		if (effect) desc += effect + ' ';
+		if (flavor) desc += flavor;
+		desc = desc.trim();
+		// Create or update a separate info div after the crate for description
+		var infoId = 'a11y-heavenly-info-' + u.id;
+		var infoEl = l(infoId);
+		cr.removeAttribute('aria-describedby');
+		if (desc) {
+			if (!infoEl) {
+				infoEl = document.createElement('div');
+				infoEl.id = infoId;
+				infoEl.setAttribute('tabindex', '0');
+				infoEl.setAttribute('role', 'note');
+				if (cr.nextSibling) {
+					cr.parentNode.insertBefore(infoEl, cr.nextSibling);
+				} else {
+					cr.parentNode.appendChild(infoEl);
+				}
+			}
+			MOD.setTextIfChanged(infoEl, desc);
+			MOD.setAttributeIfChanged(infoEl, 'aria-label', desc);
+		} else if (infoEl) {
+			infoEl.remove();
+		}
 		if (isGhosted) {
 			// Ghosted upgrades are not interactive but should be discoverable
-			var t = n + '. Locked. ';
-			if (effect) t += effect + ' ';
-			if (flavor) t += flavor + ' ';
+			var t = n + '. Locked';
+			// List missing parent upgrades so blind players can trace the ascension tree
+			var missing = [];
+			for (var pi = 0; pi < u.parents.length; pi++) {
+				var parent = u.parents[pi];
+				if (parent && parent !== -1 && !parent.bought) {
+					missing.push(parent.dname || parent.name);
+				}
+			}
+			if (missing.length > 0) {
+				t += ', requires ' + missing.join(' and ');
+			}
+			t += '. Cost: ' + p + ' heavenly chips.';
 			cr.removeAttribute('aria-labelledby');
-			cr.setAttribute('aria-label', t.trim());
-			cr.removeAttribute('role');
+			cr.setAttribute('aria-label', t);
+			MOD.setAttributeIfChanged(cr, 'role', 'button');
 			MOD.setAttributeIfChanged(cr, 'tabindex', '0');
 			return;
 		}
@@ -5098,14 +5433,12 @@ Game.registerMod("nvda accessibility", {
 		if (!u.bought && !u.canBePurchased && !Game.Has('Neuromancy')) return;
 		var t = n + '. ';
 		if (u.bought) {
-			t += 'Owned. ';
+			t += 'Owned.';
 		} else {
 			var canAfford = Game.heavenlyChips >= u.getPrice();
-			t += (canAfford ? 'Can afford. ' : 'Cannot afford. ');
 			t += 'Cost: ' + p + ' heavenly chips. ';
+			t += canAfford ? 'Affordable.' : 'Cannot afford.';
 		}
-		if (effect) t += effect + ' ';
-		if (flavor) t += flavor + ' ';
 		var ar = l('ariaReader-upgrade-' + u.id);
 		if (ar) ar.innerHTML = t;
 		cr.removeAttribute('aria-labelledby');
@@ -5313,9 +5646,13 @@ Game.registerMod("nvda accessibility", {
 			MOD.lastBuyBulk = Game.buyBulk;
 			MOD.populateProductLabels();
 		}
-		// Statistics menu - re-enhance after each UpdateMenu() rebuild
+		// Menu enhancements - re-enhance after each UpdateMenu() rebuild
 		if (Game.onMenu === 'stats') {
 			MOD.enhanceStatsMenu();
+		} else if (Game.onMenu === 'prefs') {
+			MOD.enhanceOptionsMenu();
+		} else if (Game.onMenu === 'log') {
+			MOD.enhanceInfoMenu();
 		}
 		if (Game.OnAscend) {
 			if (!MOD.wasOnAscend) {
@@ -6581,43 +6918,7 @@ Game.registerMod("nvda accessibility", {
 	// Tech Upgrades Labels (research panel in main view)
 	// ============================================
 	labelStatsUpgrades: function() {
-		var MOD = this;
-		// Label tech upgrades if visible (store upgrades are handled by populateUpgradeLabel)
-		var techDiv = l('techUpgrades');
-		if (techDiv) {
-			techDiv.querySelectorAll('.crate.upgrade').forEach(function(crate) {
-				MOD.labelStatsCrate(crate);
-			});
-		}
-	},
-	labelStatsCrate: function(crate) {
-		var MOD = this;
-		if (!crate) return;
-		// Try to get upgrade from onclick attribute
-		var onclick = crate.getAttribute('onclick') || '';
-		var match = onclick.match(/Game\.UpgradesById\[(\d+)\]/);
-		if (!match) return;
-		var upgradeId = parseInt(match[1]);
-		var upgrade = Game.UpgradesById[upgradeId];
-		if (!upgrade) return;
-		// Skip debug upgrades entirely
-		if (upgrade.pool === 'debug') {
-			crate.style.display = 'none';
-			return;
-		}
-		// Statistics menu only shows owned upgrades, so just label them
-		var name = upgrade.dname || upgrade.name;
-		var desc = MOD.stripHtml(upgrade.desc || '');
-		var lbl = name + '. ' + desc;
-		crate.setAttribute('aria-label', lbl);
-		MOD.setAttributeIfChanged(crate, 'role', 'button');
-		MOD.setAttributeIfChanged(crate, 'tabindex', '0');
-		if (!crate.dataset.a11yLabeled) {
-			crate.dataset.a11yLabeled = 'true';
-			crate.addEventListener('keydown', function(e) {
-				if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); crate.click(); }
-			});
-		}
+		// Tech upgrades in the store are handled by populateUpgradeLabel via enhanceUpgradeShop
 	},
 	labelStatsHeavenly: function() {
 		var MOD = this;

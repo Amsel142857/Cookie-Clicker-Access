@@ -3,9 +3,9 @@
 	"ID": "nvda accessibility",
 	"Author": "Claude",
 	"Description": "Enhances accessibility for NVDA and other screen readers. Fully accessible Garden, Pantheon, Grimoire, buildings with levels, wrinklers, and more.",
-	"ModVersion": 13.2,
+	"ModVersion": 13.5,
 	"GameVersion": 2.053,
-	"Date": "15/02/2026",
+	"Date": "17/02/2026",
 	"Dependencies": [],
 	"Disabled": 0,
 	"AllowSteamAchievs": 1
