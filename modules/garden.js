@@ -111,7 +111,8 @@ var GardenModule = (function() {
 					var avgTick = info.plant.ageTick + info.plant.ageTickR / 2;
 					var ageMult = (g.plotBoost && g.plotBoost[y] && g.plotBoost[y][x]) ? g.plotBoost[y][x][0] : 1;
 					var decayFrames = ((100 / (ageMult * avgTick)) * ((100 - info.age) / 100) * dragonBoost * g.stepT) * 30;
-					text += '. Decays in about ' + Game.sayTime(decayFrames, -1);
+					var minuteFrames = Game.fps * 60;
+					text += '. Decays in about ' + Game.sayTime(Math.ceil(decayFrames / minuteFrames) * minuteFrames, -1);
 				} else if (info.plant && info.plant.immortal) {
 					text += '. Does not decay';
 				}
@@ -122,7 +123,8 @@ var GardenModule = (function() {
 					var avgTick = info.plant.ageTick + info.plant.ageTickR / 2;
 					var ageMult = (g.plotBoost && g.plotBoost[y] && g.plotBoost[y][x]) ? g.plotBoost[y][x][0] : 1;
 					var matFrames = ((100 / (ageMult * avgTick)) * ((info.matureAge - info.age) / 100) * dragonBoost * g.stepT) * 30;
-					text += '. Matures in about ' + Game.sayTime(matFrames, -1);
+					var minuteFrames = Game.fps * 60;
+					text += '. Matures in about ' + Game.sayTime(Math.ceil(matFrames / minuteFrames) * minuteFrames, -1);
 				}
 			}
 		}

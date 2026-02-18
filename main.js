@@ -2437,10 +2437,12 @@ Game.registerMod("nvda accessibility", {
 				var ageMult = (g.plotBoost && g.plotBoost[y] && g.plotBoost[y][x]) ? g.plotBoost[y][x][0] : 1;
 				if (age < mature) {
 					var matFrames = ((100 / (ageMult * avgTick)) * ((mature - age) / 100) * dragonBoost * g.stepT) * 30;
-					lbl += '. Matures in about ' + Game.sayTime(matFrames, -1);
+					var minuteFrames = Game.fps * 60;
+					lbl += '. Matures in about ' + Game.sayTime(Math.ceil(matFrames / minuteFrames) * minuteFrames, -1);
 				} else if (!pl.immortal) {
 					var decayFrames = ((100 / (ageMult * avgTick)) * ((100 - age) / 100) * dragonBoost * g.stepT) * 30;
-					lbl += '. Decays in about ' + Game.sayTime(decayFrames, -1);
+					var minuteFrames = Game.fps * 60;
+					lbl += '. Decays in about ' + Game.sayTime(Math.ceil(decayFrames / minuteFrames) * minuteFrames, -1);
 				} else {
 					lbl += '. Does not decay';
 				}
@@ -2954,7 +2956,8 @@ Game.registerMod("nvda accessibility", {
 				var avgTick = info.plant.ageTick + info.plant.ageTickR / 2;
 				var ageMult = (g.plotBoost && g.plotBoost[y] && g.plotBoost[y][x]) ? g.plotBoost[y][x][0] : 1;
 				var decayFrames = ((100 / (ageMult * avgTick)) * ((100 - info.age) / 100) * dragonBoost * g.stepT) * 30;
-				label += '. Decays in about ' + Game.sayTime(decayFrames, -1);
+				var minuteFrames = Game.fps * 60;
+				label += '. Decays in about ' + Game.sayTime(Math.ceil(decayFrames / minuteFrames) * minuteFrames, -1);
 			} else if (info.plant && info.plant.immortal) {
 				label += '. Does not decay';
 			}
@@ -2969,7 +2972,8 @@ Game.registerMod("nvda accessibility", {
 				var avgTick = info.plant.ageTick + info.plant.ageTickR / 2;
 				var ageMult = (g.plotBoost && g.plotBoost[y] && g.plotBoost[y][x]) ? g.plotBoost[y][x][0] : 1;
 				var matFrames = ((100 / (ageMult * avgTick)) * ((info.matureAge - info.age) / 100) * dragonBoost * g.stepT) * 30;
-				label += '. Matures in about ' + Game.sayTime(matFrames, -1);
+				var minuteFrames = Game.fps * 60;
+				label += '. Matures in about ' + Game.sayTime(Math.ceil(matFrames / minuteFrames) * minuteFrames, -1);
 			}
 			btn.style.background = '#2a2a3a';
 			btn.style.border = '1px solid #55a';
@@ -4437,23 +4441,21 @@ Game.registerMod("nvda accessibility", {
 			if (Game.cpsSucked) cps = cps * (1 - Game.cpsSucked);
 			if (cps <= 0) return 'Cannot afford yet';
 			var seconds = Math.ceil(deficit / cps);
-			if (seconds < 60) return seconds + ' second' + (seconds !== 1 ? 's' : '');
-			var minutes = Math.floor(seconds / 60);
-			var remainSec = seconds % 60;
+			if (seconds < 60) return 'less than a minute';
+			var minutes = Math.ceil(seconds / 60);
 			if (minutes < 60) {
-				if (remainSec > 0) return minutes + ' min ' + remainSec + ' sec';
-				return minutes + ' minute' + (minutes !== 1 ? 's' : '');
+				return 'about ' + minutes + ' minute' + (minutes !== 1 ? 's' : '');
 			}
 			var hours = Math.floor(minutes / 60);
 			var remainMin = minutes % 60;
 			if (hours < 24) {
-				if (remainMin > 0) return hours + ' hr ' + remainMin + ' min';
-				return hours + ' hour' + (hours !== 1 ? 's' : '');
+				if (remainMin > 0) return 'about ' + hours + ' hr ' + remainMin + ' min';
+				return 'about ' + hours + ' hour' + (hours !== 1 ? 's' : '');
 			}
 			var days = Math.floor(hours / 24);
 			var remainHr = hours % 24;
-			if (remainHr > 0) return days + ' day' + (days !== 1 ? 's' : '') + ' ' + remainHr + ' hr';
-			return days + ' day' + (days !== 1 ? 's' : '');
+			if (remainHr > 0) return 'about ' + days + ' day' + (days !== 1 ? 's' : '') + ' ' + remainHr + ' hr';
+			return 'about ' + days + ' day' + (days !== 1 ? 's' : '');
 		} catch(e) {
 			return 'Unknown';
 		}
@@ -4778,10 +4780,13 @@ Game.registerMod("nvda accessibility", {
 			var avgTick = plant.ageTick + plant.ageTickR / 2;
 			var matFrames = ((100 / avgTick) * (plant.mature / 100) * dragonBoost * g.stepT) * 30;
 			var approx = plant.ageTickR > 0 ? 'about ' : '';
-			var matLine = 'Maturation: ' + approx + Game.sayTime(matFrames, -1) + '.';
+			var minuteFrames = Game.fps * 60;
+			var matFramesRounded = Math.ceil(matFrames / minuteFrames) * minuteFrames;
+			var matLine = 'Maturation: ' + approx + Game.sayTime(matFramesRounded, -1) + '.';
 			if (!plant.immortal) {
 				var lifeFrames = ((100 / avgTick) * dragonBoost * g.stepT) * 30;
-				matLine += ' Lifespan: ' + approx + Game.sayTime(lifeFrames, -1) + '.';
+				var lifeFramesRounded = Math.ceil(lifeFrames / minuteFrames) * minuteFrames;
+				matLine += ' Lifespan: ' + approx + Game.sayTime(lifeFramesRounded, -1) + '.';
 			} else {
 				matLine += ' Immortal.';
 			}
