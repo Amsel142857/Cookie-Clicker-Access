@@ -1,6 +1,6 @@
 // ==UserScript==
-// @name         Cookie Clicker Enhanced NVDA Accessibility (Web)
-// @namespace    https://github.com/Amsel142857/Cookie-Clicker-Enhanced-NVDA-Accessibility-Steam-Only-
+// @name         Cookie Clicker Access (Web)
+// @namespace    https://github.com/Amsel142857/Cookie-Clicker-Access
 // @version      1.3.6
 // @description  Adapts the Steam accessibility mod for the web version of Cookie Clicker. Self-contained bundle with all modules.
 // @author       Claude (Original Mod), Guillem (Tampermonkey Adapter)

@@ -55,15 +55,15 @@ When the mod loads, it announces "NVDA Accessibility mod version 13.6 loaded." T
 - **News** (H2): The game's news ticker. Focusable but set to aria-live off to avoid noise.
 - **Store** (H2): Contains available upgrades and buildings.
 - **Buildings** (H3): The building purchase buttons within the store.
-- **Active Buffs** (H2): Shows current buffs with time remaining.
-- **Active Shimmers** (H2): Shows Golden Cookies, Wrath Cookies, or Reindeer that have spawned.
 - **Wrinklers** (H2): Shows active wrinklers with buttons to pop them.
+- **Status and Effects** (H2): Shows current game state — dragon level, auras, Santa, active season, grandmapocalypse stage, elder pledge/covenant, golden switch, shimmering veil, and active buffs with time remaining.
+- **Shimmers** (H2): Shows Golden Cookies, Wrath Cookies, or Reindeer that have spawned.
 
 Use your screen reader's heading navigation (e.g., H key in NVDA browse mode) to jump between sections.
 
 ### Clicking the Big Cookie
 
-The Big Cookie is labeled and can be clicked normally. Below it you will find displays for cookies per click, milk progress, and the current season.
+The Big Cookie is labeled and can be clicked normally. Below it you will find displays for cookies per click and milk progress.
 
 ### Buying Upgrades
 
@@ -97,11 +97,10 @@ The Garden lets you grow plants in a 6x6 grid.
 
 **Grid Navigation:**
 1. Open the Farm minigame
-2. Tab to the "Enter Garden Grid" button and press Enter
-3. Use Arrow keys to move between tiles. Each tile announces its coordinates (R#, C#), any plant name, growth percentage, and whether it is ready to harvest.
+2. Below the Plots heading (which shows the grid size), tiles are directly accessible
+3. Use Arrow keys to navigate between tiles. Each tile announces its coordinates (R#, C#), any plant name, growth percentage, and whether it is ready to harvest.
 4. Press Enter or Space on an empty tile to plant your selected seed, or on a mature plant to harvest it
-5. Home jumps to R1, C1. End jumps to the last tile.
-6. Press Escape to exit grid navigation
+5. Press Escape to exit grid navigation
 
 **Seeds:** Tab to the Seeds section to browse unlocked seeds. Click a seed to select it. A "Selected [name]" announcement confirms your choice.
 
@@ -118,26 +117,21 @@ The Garden lets you grow plants in a 6x6 grid.
 
 The Grimoire lets you cast spells using magic points.
 
-At the top of the Grimoire panel, a magic meter shows your current magic, maximum magic, and spells cast. Each spell is presented as:
-
-1. **Heading** (H3) with the spell name
-2. **Cost and status** line showing magic cost and whether you can cast
-3. **Effect** description
-4. **Cast button** to cast the spell
+The Magic heading (H3) shows current/max magic and spells cast. Each spell is a cast button labeled with the spell name, magic cost, and whether you can cast. Below each button is the effect description and backfire chance if applicable.
 
 ### Pantheon (Temple - Level 1)
 
 The Pantheon lets you slot spirits into Diamond, Ruby, and Jade slots for various bonuses.
 
-**Slots** appear first. Each shows its name and current occupant (or "Empty"). Press Enter on an occupied slot to remove that spirit.
+**Slots** (Diamond, Ruby, Jade) appear first. Each shows its current occupant or "Empty". Press Enter on an occupied slot to remove that spirit.
 
-**Spirits** appear below, each with an H3 heading, flavor text, and buff description. Each spirit has three placement buttons (D, R, J) to place it directly into a slot. Buttons are disabled for the slot the spirit currently occupies.
+**Spirits** appear below, each with an H3 heading showing its name (e.g. "Holobore, spirit of asceticism"), flavor text, buff description, and three placement buttons labeled Diamond, Ruby, and Jade. Buttons are disabled for the slot the spirit currently occupies.
 
-Worship swaps are limited. The swap count is shown in the Pantheon heading. When no swaps are available, a cooldown timer is announced.
+Worship swaps are limited. The swap count and cooldown timer (when no swaps are available) appear as text between the slots and spirits.
 
 ### Stock Market (Bank - Level 1)
 
-Each stock row is labeled with the stock name, current price, shares owned, and trend direction (Rising, Falling, or Stable). Buy and Sell buttons are labeled per stock and keyboard-accessible.
+Each stock has a heading with the stock name, current price, shares owned, and trend direction (Rising, Falling, or Stable). The percentage shown is the change from the last tick to the current tick. Below the heading, a "Graph" trend line shows the trend over the last 65 ticks. When holding shares, the heading also shows the price you last bought at. Buy and Sell buttons are labeled per stock and keyboard-accessible.
 
 ## Special Systems
 
@@ -156,7 +150,7 @@ The Santa tab appears during the Christmas season. Inside:
 
 ### Shimmers (Golden Cookies, Wrath Cookies, Reindeer)
 
-When a shimmer appears, the mod urgently announces it (e.g., "A Golden Cookie has appeared!"). Five seconds before it fades, a fading alert fires.
+When a shimmer appears, the mod urgently announces it (e.g., "A Golden Cookie has appeared!"). Ten seconds before it fades, a fading alert fires.
 
 The Active Shimmers panel shows clickable buttons for each shimmer with a countdown timer. Click or press Enter to collect.
 
@@ -164,11 +158,11 @@ During Cookie Chains and Cookie Storms, individual shimmer announcements are sup
 
 ### Wrinklers
 
-When a wrinkler spawns, the mod announces it. The Wrinklers section shows a button per active wrinkler displaying how many cookies it has sucked. Click to pop it and recover cookies (110% return; 3x for shiny wrinklers).
+When a wrinkler spawns, the mod announces it. The Wrinklers section shows a button per active wrinkler. If you have the "Eye of the wrinkler" heavenly upgrade, each button also shows how many cookies the wrinkler has sucked. Click to pop it and recover cookies (110% return; 3x for shiny wrinklers).
 
 ### Buffs
 
-The Active Buffs panel shows each current buff with its name, time remaining, and effect description. Buff start and end events are also announced via the live region.
+Buffs are shown within the Status and Effects panel. Each buff shows its name, time remaining, and effect description. Buff start and end events are also announced via the live region.
 
 ### Sugar Lumps
 
@@ -176,11 +170,10 @@ The sugar lump button is labeled with the lump type (Normal, Bifurcated, Golden,
 
 ### Seasons
 
-The current season is shown in the main interface display. When seasons change, the mod announces the transition.
+The current season is shown in the Status and Effects panel. When seasons change, the mod announces the transition.
 
 ## Known Issues
 
-- **Statistics menu**: Some statistics content may not be fully accessible. Upgrades and achievements are labeled in batches to avoid freezing, but navigation can be slow with large collections.
 - **Music**: The mod automatically sets music volume to 0 on load. Adjust in game options if you want music.
 - **Screen reader mode**: The mod forces Cookie Clicker's built-in screen reader preference on. This creates ARIA reader labels that the mod then populates.
 - **Web version**: If the mod doesn't load, check the browser console (F12) for errors. Make sure you're using the bundled userscript (`cookie-clicker-accessibility.user.js`) and that Tampermonkey is enabled.

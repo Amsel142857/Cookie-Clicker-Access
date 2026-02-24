@@ -61,13 +61,9 @@ A single `Game.registerMod("nvda accessibility", { ... })` call containing all m
 - **Special systems** — `createDragonPanel()`, `createSantaPanel()`, `createShimmerPanel()`, `createActiveBuffsPanel()`, `createWrinklerOverlays()`.
 - **Announcement system** — `announce()` (polite) and `announceUrgent()` (assertive) write to ARIA live regions. Urgent is for shimmers, wrinklers, veil breaks, achievements.
 
-### modules/ (extracted minigame logic)
+### modules/ (legacy, currently empty)
 
-These are standalone IIFE modules loaded before `main.js` in the userscript bundle. They are **only used by the web/Tampermonkey version** — the Steam version uses the equivalent code already in `main.js`.
-
-- **`garden.js`** — Virtual grid navigation for the Farm minigame (arrow keys, Enter to plant/harvest).
-- **`pantheon.js`** — State machine for Temple spirit slot placement (replaces drag-and-drop).
-- **`statistics.js`** — Batch labeling of upgrade/achievement icons in the Stats menu.
+Previously contained standalone IIFE modules for the web/Tampermonkey build. All minigame logic is now inlined in `main.js` and shared by both Steam and web versions.
 
 ### reference/ (read-only)
 

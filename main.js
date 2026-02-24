@@ -3136,66 +3136,6 @@ Game.registerMod("nvda accessibility", {
 			MOD.createLumpRefillProxy('a11y-garden-lump-refill', 'gardenLumpRefill', 'Refill soil timer and trigger 1 growth tick with 3x spread and mutation', gardenInfoBar);
 		}
 	},
-	createGardenAccessiblePanel: function(g) {
-		var MOD = this;
-		if (!g) return;
-		// Remove old panel if exists
-		var oldPanel = l('a11yGardenPanel');
-		if (oldPanel) oldPanel.remove();
-		// Check if garden minigame is visible
-		var gardenContainer = l('row2minigame');
-		if (!gardenContainer) {
-			gardenContainer = l('gardenContent');
-		}
-		if (!gardenContainer) return;
-
-		// Gather statistics for announcement
-		var unlockedSeeds = MOD.getUnlockedSeeds(g);
-		var harvestable = MOD.getHarvestablePlants(g);
-		var plantsCount = 0;
-		for (var py = 0; py < 6; py++) {
-			for (var px = 0; px < 6; px++) {
-				var tile = g.plot[py] && g.plot[py][px];
-				if (tile && tile[0] > 0) plantsCount++;
-			}
-		}
-
-		// Create accessible panel
-		var panel = document.createElement('div');
-		panel.id = 'a11yGardenPanel';
-		panel.setAttribute('aria-labelledby', 'a11yGardenHeading');
-		panel.style.cssText = 'background:#1a2a1a;border:2px solid #4a4;padding:10px;margin:10px 0;';
-
-		// H2 Title for navigation
-		var title = document.createElement('h2');
-		title.id = 'a11yGardenHeading';
-		title.textContent = 'Garden Effects and Tips - Level ' + (parseInt(g.parent.level) || 0);
-		title.style.cssText = 'color:#6c6;margin:0 0 10px 0;font-size:16px;';
-		panel.appendChild(title);
-
-		// Status summary (focusable)
-		var statusDiv = document.createElement('div');
-		statusDiv.id = 'a11yGardenStatus';
-		statusDiv.setAttribute('tabindex', '0');
-		statusDiv.style.cssText = 'color:#aaa;margin-bottom:10px;padding:5px;background:#222;';
-		var freezeStatus = g.freeze ? 'FROZEN' : 'Active';
-		var soilName = g.soilsById && g.soil !== undefined && g.soilsById[g.soil] ? g.soilsById[g.soil].name : 'Unknown';
-		statusDiv.textContent = 'Status: ' + freezeStatus + ' | Soil: ' + soilName + ' | ' + plantsCount + ' plants, ' + harvestable.length + ' ready to harvest';
-		panel.appendChild(statusDiv);
-
-		// Live region for announcements
-		var announcer = document.createElement('div');
-		announcer.id = 'a11yGardenAnnouncer';
-		announcer.setAttribute('role', 'status');
-		announcer.setAttribute('aria-live', 'polite');
-		announcer.setAttribute('aria-atomic', 'true');
-		announcer.style.cssText = 'position:absolute;left:-10000px;width:1px;height:1px;overflow:hidden;';
-		announcer.textContent = 'Garden panel loaded. ' + unlockedSeeds.length + ' seeds unlocked, ' + plantsCount + ' plots with plants, ' + harvestable.length + ' ready to harvest';
-		panel.appendChild(announcer);
-
-		// Insert panel after the garden minigame
-		gardenContainer.parentNode.insertBefore(panel, gardenContainer.nextSibling);
-	},
 	// Update a single plot button in-place (preserves focus)
 	updatePlotButton: function(x, y) {
 		var MOD = this;
@@ -3751,15 +3691,6 @@ Game.registerMod("nvda accessibility", {
 		MOD.labelOriginalGardenElements(g);
 		// Update accessible plot buttons in-place
 		MOD.updateAllPlotButtons();
-		// Update status in virtual panel if it exists
-		var statusInfo = l('a11yGardenStatusInfo');
-		if (statusInfo && typeof GardenModule !== 'undefined') {
-			var freezeStatus = g.freeze ? 'FROZEN' : 'Active';
-			var soilName = g.soilsById && g.soilsById[g.soil] ? g.soilsById[g.soil].name : 'Unknown';
-			statusInfo.innerHTML = '<strong>Status:</strong> ' + freezeStatus +
-				' | <strong>Soil:</strong> ' + soilName +
-				' | <strong>Grid:</strong> ' + g.plotWidth + 'x' + g.plotHeight;
-		}
 	},
 	getSpiritSlotEffect: function(god, slotIndex) {
 		var MOD = this;
@@ -5851,7 +5782,6 @@ Game.registerMod("nvda accessibility", {
 					if (MOD.pantheonReady()) {
 						MOD.minigameInitDone[mbName] = true;
 						MOD.enhancePantheonMinigame();
-						MOD.createEnhancedPantheonPanel();
 					}
 				} else if (mbName === 'Wizard tower') {
 					MOD.minigameInitDone[mbName] = true;
@@ -5890,7 +5820,6 @@ Game.registerMod("nvda accessibility", {
 			MOD.labelBuildingRows();
 			// Update minigames when visible
 			if (MOD.pantheonReady() && Game.Objects['Temple'].onMinigame) {
-				MOD.createEnhancedPantheonPanel();
 				MOD.enhancePantheonMinigame();
 			}
 			if (Game.Objects['Wizard tower'] && Game.Objects['Wizard tower'].minigame && Game.Objects['Wizard tower'].onMinigame) {
@@ -6962,115 +6891,6 @@ Game.registerMod("nvda accessibility", {
 	// ============================================
 	// Shimmer buttons and timer display removed in v8.
 	// Live announcements for shimmer appearing/fading are handled by trackShimmerAnnouncements().
-
-	// ============================================
-	// MODULE: Enhanced Pantheon
-	// ============================================
-	createEnhancedPantheonPanel: function(forceRebuild) {
-		var MOD = this;
-		if (!MOD.pantheonReady()) return;
-		var pan = Game.Objects['Temple'].minigame;
-		// Build a fingerprint of current state to avoid unnecessary rebuilds
-		var fingerprint = (pan.swaps || 0) + ':' + pan.slot.join(',');
-		if (!forceRebuild && fingerprint === MOD._pantheonFingerprint && l('a11yPantheonPanel')) return;
-		MOD._pantheonFingerprint = fingerprint;
-		var oldPanel = l('a11yPantheonPanel');
-		if (oldPanel) oldPanel.remove();
-		// Find pantheon container
-		var panContainer = l('row6minigame');
-		if (!panContainer || panContainer.style.display === 'none') return;
-		var panel = document.createElement('div');
-		panel.id = 'a11yPantheonPanel';
-		panel.setAttribute('role', 'region');
-		panel.setAttribute('aria-label', 'Pantheon Controls');
-		panel.style.cssText = 'background:#1a1a2e;border:2px solid #a6a;padding:10px;margin:10px 0;';
-		// Title with worship swaps
-		var swaps = pan.swaps || 0;
-		var heading = document.createElement('h3');
-		heading.textContent = 'Pantheon - ' + swaps + ' Worship Swap' + (swaps !== 1 ? 's' : '') + ' available';
-		heading.style.cssText = 'color:#a6f;margin:0 0 10px 0;font-size:14px;';
-		panel.appendChild(heading);
-		var slots = ['Diamond', 'Ruby', 'Jade'];
-		var slotMultipliers = [100, 50, 25]; // Effect percentages
-		// Create slot sections
-		for (var i = 0; i < 3; i++) {
-			var slotDiv = document.createElement('div');
-			slotDiv.style.cssText = 'margin:10px 0;padding:10px;background:#222;border:1px solid #666;';
-			var slotHeading = document.createElement('h4');
-			slotHeading.style.cssText = 'color:#fc0;margin:0 0 5px 0;font-size:13px;';
-			var spiritId = pan.slot[i];
-			if (spiritId !== -1 && pan.gods[spiritId]) {
-				var god = pan.gods[spiritId];
-				slotHeading.textContent = slots[i] + ' Slot: ' + god.name;
-				// Show spirit effect
-				var effectDiv = document.createElement('div');
-				effectDiv.style.cssText = 'color:#ccc;font-size:12px;margin:5px 0;';
-				effectDiv.textContent = 'Effect: ' + MOD.getSpiritSlotEffect(god, i);
-				slotDiv.appendChild(slotHeading);
-				slotDiv.appendChild(effectDiv);
-				// Clear button
-				var clearBtn = document.createElement('button');
-				clearBtn.type = 'button';
-				clearBtn.textContent = 'Remove ' + god.name;
-				clearBtn.style.cssText = 'padding:5px 10px;background:#633;border:1px solid #966;color:#fff;cursor:pointer;margin-top:5px;';
-				(function(slotIdx, godObj) {
-					clearBtn.addEventListener('click', function() {
-						pan.slotGod(godObj, -1);
-						MOD.announce(godObj.name + ' removed from ' + slots[slotIdx] + ' slot');
-						MOD.createEnhancedPantheonPanel(true);
-						MOD.enhancePantheonMinigame();
-					});
-				})(i, god);
-				slotDiv.appendChild(clearBtn);
-			} else {
-				slotHeading.textContent = slots[i] + ' Slot: Empty';
-				slotDiv.appendChild(slotHeading);
-			}
-			panel.appendChild(slotDiv);
-		}
-		// Spirit selection section
-		var spiritHeading = document.createElement('h4');
-		spiritHeading.textContent = 'Available Spirits:';
-		spiritHeading.style.cssText = 'color:#fc0;margin:15px 0 10px 0;font-size:13px;';
-		panel.appendChild(spiritHeading);
-		for (var id in pan.gods) {
-			var god = pan.gods[id];
-			var inSlot = pan.slot.indexOf(parseInt(id));
-			if (inSlot >= 0) continue; // Skip if already slotted
-			var spiritDiv = document.createElement('div');
-			spiritDiv.style.cssText = 'margin:5px 0;padding:8px;background:#333;border:1px solid #555;';
-			var spiritName = document.createElement('strong');
-			spiritName.textContent = god.name;
-			spiritName.style.color = '#fff';
-			spiritDiv.appendChild(spiritName);
-			var spiritDesc = document.createElement('div');
-			spiritDesc.textContent = MOD.stripHtml(god.desc1 || '');
-			spiritDesc.style.cssText = 'color:#aaa;font-size:11px;margin:3px 0;';
-			spiritDiv.appendChild(spiritDesc);
-			// Slot buttons
-			var btnContainer = document.createElement('div');
-			btnContainer.style.marginTop = '5px';
-			for (var s = 0; s < 3; s++) {
-				(function(slotIdx, godObj) {
-					var slotBtn = document.createElement('button');
-					slotBtn.type = 'button';
-					slotBtn.textContent = slots[slotIdx].charAt(0);
-					slotBtn.setAttribute('aria-label', 'Place ' + godObj.name + ' in ' + slots[slotIdx] + ' slot');
-					slotBtn.style.cssText = 'padding:5px 10px;margin:2px;background:#363;border:1px solid #6a6;color:#fff;cursor:pointer;';
-					slotBtn.addEventListener('click', function() {
-						pan.slotGod(godObj, slotIdx);
-						MOD.announce(godObj.name + ' placed in ' + slots[slotIdx] + ' slot');
-						MOD.createEnhancedPantheonPanel(true);
-						MOD.enhancePantheonMinigame();
-					});
-					btnContainer.appendChild(slotBtn);
-				})(s, god);
-			}
-			spiritDiv.appendChild(btnContainer);
-			panel.appendChild(spiritDiv);
-		}
-		panContainer.parentNode.insertBefore(panel, panContainer.nextSibling);
-	},
 
 	// ============================================
 	// MODULE: Building Levels (Sugar Lump)

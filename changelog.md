@@ -21,6 +21,12 @@
 - Replaced visual-only golden cookie sound selector with accessible button panel
 - Permanent upgrade slots now show assigned upgrade name in label
 
+### Cleanup
+- Removed duplicate Pantheon panel (was creating a second set of controls alongside the inline ones)
+- Removed unused Garden accessible panel (dead code)
+- Removed legacy Garden module from web build (web version now uses same inline code as Steam)
+- Updated Tampermonkey userscript name and namespace to match current repo
+
 ### Fixes
 - Fixed wrinkler labels showing cookies sucked without Eye of the Wrinkler upgrade
 - Removed "Click to pop" from wrinkler labels

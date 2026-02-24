@@ -21,11 +21,6 @@ echo "(function() {" >> "$OUTPUT"
 echo "    'use strict';" >> "$OUTPUT"
 echo "" >> "$OUTPUT"
 
-# Add modules in order
-echo "    // === Garden Module ===" >> "$OUTPUT"
-cat modules/garden.js >> "$OUTPUT"
-echo "" >> "$OUTPUT"
-
 echo "    // === Main Mod (wrapped for delayed registration) ===" >> "$OUTPUT"
 cat >> "$OUTPUT" << 'EOF'
     // Wrap the mod registration to ensure Game is ready
