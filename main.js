@@ -136,6 +136,18 @@ Game.registerMod("nvda accessibility", {
 				}
 				var el = document.activeElement;
 				if (!el) return;
+				// If focus is inside the garden grid, move focus out so NVDA
+				// exits focus mode instead of closing the garden
+				var gridPanel = l('a11yGardenGridPanel');
+				if (gridPanel && gridPanel.contains(el)) {
+					var plotHeading = l('a11yGardenPlotHeading');
+					if (plotHeading) {
+						plotHeading.setAttribute('tabindex', '-1');
+						plotHeading.focus();
+					}
+					e.preventDefault();
+					return;
+				}
 				// Check minigame panels
 				var row = el.closest('.onMinigame');
 				if (row) {
@@ -583,6 +595,8 @@ Game.registerMod("nvda accessibility", {
 		MOD.gardenBuildPanelWrapped = false;
 		MOD.gardenBuildPlotWrapped = false;
 		MOD.gardenPlotSnapshot = {};
+		MOD.gardenGridPanelOpen = false;
+		MOD.gardenGridButtons = {};
 
 		MOD.gardenPrevUnlockedTiles = 0;
 		MOD.gardenPrevHarvests = -1;
@@ -2678,6 +2692,204 @@ Game.registerMod("nvda accessibility", {
 		// Label original garden elements directly
 		MOD.labelOriginalGardenElements(g);
 	},
+	setupGardenGrid: function() {
+		var MOD = this;
+		if (!MOD.gardenReady()) return;
+		var g = Game.Objects['Farm'].minigame;
+
+		// Compute active grid bounds from plotLimits
+		var level = Math.max(1, Math.min(g.plotLimits.length, g.parent.level)) - 1;
+		var limits = g.plotLimits[level];
+		var minX = limits[0], minY = limits[1], maxX = limits[2], maxY = limits[3];
+		var numRows = maxY - minY;
+		var numCols = maxX - minX;
+
+		// Store grid bounds
+		MOD.gardenGridBounds = { minX: minX, minY: minY, maxX: maxX, maxY: maxY };
+
+		// Hide the visual gardenPlot from screen readers
+		var gardenPlot = l('gardenPlot');
+		if (gardenPlot) gardenPlot.setAttribute('aria-hidden', 'true');
+
+		// If panel already exists with the same dimensions and is tracked, skip rebuild
+		var existing = l('a11yGardenGridPanel');
+		if (existing && MOD.gardenGridPanelOpen && existing.dataset.rows === String(numRows) && existing.dataset.cols === String(numCols)) {
+			return;
+		}
+		// Remove old panel if dimensions changed
+		if (existing) existing.remove();
+
+		// Create panel
+		var panel = document.createElement('div');
+		panel.id = 'a11yGardenGridPanel';
+		panel.dataset.rows = String(numRows);
+		panel.dataset.cols = String(numCols);
+		panel.style.cssText = 'background:#1a2e1a;border:2px solid #6c6;padding:10px;margin:10px 0;';
+
+		// Grid container (no table semantics — labels handle row/column)
+		var grid = document.createElement('div');
+		panel.appendChild(grid);
+
+		// Store button references for updating labels
+		MOD.gardenGridButtons = {};
+		MOD.gardenGridCurrentX = minX;
+		MOD.gardenGridCurrentY = minY;
+
+		for (var y = minY; y < maxY; y++) {
+			var row = document.createElement('div');
+			for (var x = minX; x < maxX; x++) {
+				var btn = document.createElement('div');
+				btn.id = 'a11yGridBtn-' + x + '-' + y;
+				btn.setAttribute('role', 'button');
+				btn.style.cssText = 'display:inline-block;padding:4px 8px;margin:2px;min-width:60px;cursor:pointer;font-size:12px;text-align:left;background:#333;color:#fff;border:1px solid #555;';
+				btn.setAttribute('tabindex', '-1');
+
+				// Set initial label
+				var label = MOD.getGardenGridCellLabel(g, x, y);
+				btn.textContent = label;
+				btn.setAttribute('aria-label', label);
+
+				// Click/Enter handler — activate the game tile
+				(function(tileX, tileY, el) {
+					el.addEventListener('click', function() {
+						MOD.handleTileActivation(tileX, tileY);
+						setTimeout(function() {
+							if (MOD.gardenReady()) {
+								var gRef = Game.Objects['Farm'].minigame;
+								var newLabel = MOD.getGardenGridCellLabel(gRef, tileX, tileY);
+								var b = l('a11yGridBtn-' + tileX + '-' + tileY);
+								if (b) {
+									b.textContent = newLabel;
+									b.setAttribute('aria-label', newLabel);
+								}
+							}
+						}, 100);
+					});
+					el.addEventListener('keydown', function(e) {
+						if (e.key === 'Enter' || e.key === ' ') {
+							e.preventDefault();
+							el.click();
+						}
+					});
+				})(x, y, btn);
+
+				row.appendChild(btn);
+				MOD.gardenGridButtons[x + ',' + y] = btn;
+			}
+			grid.appendChild(row);
+		}
+
+		// Set first cell focusable
+		var firstBtn = l('a11yGridBtn-' + minX + '-' + minY);
+		if (firstBtn) firstBtn.setAttribute('tabindex', '0');
+
+		// Arrow key navigation on the grid
+		grid.addEventListener('keydown', function(e) {
+			var bounds = MOD.gardenGridBounds;
+			if (!bounds) return;
+			var cx = MOD.gardenGridCurrentX;
+			var cy = MOD.gardenGridCurrentY;
+			var nx = cx, ny = cy;
+			var handled = false;
+
+			switch (e.key) {
+				case 'ArrowRight': nx = cx + 1; handled = true; break;
+				case 'ArrowLeft': nx = cx - 1; handled = true; break;
+				case 'ArrowDown': ny = cy + 1; handled = true; break;
+				case 'ArrowUp': ny = cy - 1; handled = true; break;
+				case 'Home':
+					if (e.ctrlKey) { nx = bounds.minX; ny = bounds.minY; }
+					else { nx = bounds.minX; }
+					handled = true; break;
+				case 'End':
+					if (e.ctrlKey) { nx = bounds.maxX - 1; ny = bounds.maxY - 1; }
+					else { nx = bounds.maxX - 1; }
+					handled = true; break;
+			}
+
+			if (!handled) return;
+			e.preventDefault();
+
+			// Clamp to active bounds
+			if (nx < bounds.minX || nx >= bounds.maxX || ny < bounds.minY || ny >= bounds.maxY) return;
+
+			// Move roving tabindex
+			var oldBtn = l('a11yGridBtn-' + cx + '-' + cy);
+			var newBtn = l('a11yGridBtn-' + nx + '-' + ny);
+			if (oldBtn) oldBtn.setAttribute('tabindex', '-1');
+			if (newBtn) {
+				newBtn.setAttribute('tabindex', '0');
+				newBtn.focus();
+			}
+			MOD.gardenGridCurrentX = nx;
+			MOD.gardenGridCurrentY = ny;
+		});
+
+		// Insert panel after the plot heading
+		var plotHeading = l('a11yGardenPlotHeading');
+		if (plotHeading && plotHeading.nextSibling) {
+			plotHeading.parentNode.insertBefore(panel, plotHeading.nextSibling);
+		} else {
+			var gardenField = l('gardenField');
+			if (gardenField && gardenField.parentNode) {
+				gardenField.parentNode.insertBefore(panel, gardenField);
+			}
+		}
+
+		MOD.gardenGridPanelOpen = true;
+	},
+	getGardenGridCellLabel: function(g, x, y) {
+		var t = g.plot[y] && g.plot[y][x];
+		var lbl = 'Row ' + (y + 1) + ', column ' + (x + 1) + ': ';
+		if (t && t[0] > 0) {
+			var pl = g.plantsById[t[0] - 1];
+			if (pl) {
+				var mature = pl.mature || 100;
+				var age = t[1];
+				var stage;
+				if (age >= mature) stage = 'mature';
+				else if (age >= mature * 0.666) stage = 'bloom';
+				else if (age >= mature * 0.333) stage = 'sprout';
+				else stage = 'bud';
+				lbl += pl.name + ', ' + stage;
+				// Time estimate
+				var dragonBoost = 1 / (1 + 0.05 * Game.auraMult('Supreme Intellect'));
+				var avgTick = pl.ageTick + pl.ageTickR / 2;
+				var ageMult = (g.plotBoost && g.plotBoost[y] && g.plotBoost[y][x]) ? g.plotBoost[y][x][0] : 1;
+				if (age < mature) {
+					var matFrames = ((100 / (ageMult * avgTick)) * ((mature - age) / 100) * dragonBoost * g.stepT) * 30;
+					var minuteFrames = Game.fps * 60;
+					lbl += '. Matures in about ' + Game.sayTime(Math.ceil(matFrames / minuteFrames) * minuteFrames, -1);
+				} else if (!pl.immortal) {
+					var decayFrames = ((100 / (ageMult * avgTick)) * ((100 - age) / 100) * dragonBoost * g.stepT) * 30;
+					var minuteFrames = Game.fps * 60;
+					lbl += '. Decays in about ' + Game.sayTime(Math.ceil(decayFrames / minuteFrames) * minuteFrames, -1);
+				}
+			} else {
+				lbl += 'Unknown plant';
+			}
+		} else {
+			lbl += 'Empty';
+		}
+		return lbl;
+	},
+	updateGardenGridPanel: function() {
+		var MOD = this;
+		if (!MOD.gardenGridPanelOpen || !MOD.gardenGridButtons) return;
+		if (!MOD.gardenReady()) return;
+		var g = Game.Objects['Farm'].minigame;
+		var bounds = MOD.gardenGridBounds;
+		if (!bounds) return;
+		for (var y = bounds.minY; y < bounds.maxY; y++) {
+			for (var x = bounds.minX; x < bounds.maxX; x++) {
+				var btn = MOD.gardenGridButtons[x + ',' + y];
+				if (!btn) continue;
+				var label = MOD.getGardenGridCellLabel(g, x, y);
+				MOD.setAttributeIfChanged(btn, 'aria-label', label);
+				MOD.setTextIfChanged(btn, label);
+			}
+		}
+	},
 	labelSingleGardenTile: function(g, x, y) {
 		var tile = l('gardenTile-' + x + '-' + y);
 		if (!tile) return;
@@ -2744,19 +2956,6 @@ Game.registerMod("nvda accessibility", {
 				var tile = l('gardenTile-' + x + '-' + y);
 				if (!tile) continue;
 				MOD.labelSingleGardenTile(g, x, y);
-				MOD.setAttributeIfChanged(tile, 'role', 'button');
-				MOD.setAttributeIfChanged(tile, 'tabindex', '0');
-				if (!tile.getAttribute('data-a11y-kb')) {
-					tile.setAttribute('data-a11y-kb', '1');
-					(function(tileX, tileY) {
-						tile.addEventListener('keydown', function(e) {
-							if (e.key === 'Enter' || e.key === ' ') {
-								e.preventDefault();
-								MOD.handleTileActivation(tileX, tileY);
-							}
-						});
-					})(x, y);
-				}
 				if (!tile.getAttribute('data-a11y-click')) {
 					tile.setAttribute('data-a11y-click', '1');
 					(function(tileX, tileY) {
@@ -3083,8 +3282,7 @@ Game.registerMod("nvda accessibility", {
 		// Plots heading with size level
 		var gardenPlot = l('gardenPlot');
 		if (gardenPlot) {
-			gardenPlot.removeAttribute('role');
-			gardenPlot.removeAttribute('aria-label');
+			gardenPlot.setAttribute('aria-hidden', 'true');
 		}
 		var plotSizeEl = l('gardenPlotSize');
 		if (plotSizeEl) {
@@ -3107,6 +3305,9 @@ Game.registerMod("nvda accessibility", {
 			}
 		}
 		plotHeading.textContent = plotText;
+
+		// Build or update the accessible grid panel below the heading
+		MOD.setupGardenGrid();
 
 		// Create tick timer info bar at top of garden
 		var gardenInfoBar = l('a11y-garden-info-bar');
@@ -3572,6 +3773,13 @@ Game.registerMod("nvda accessibility", {
 		if (!MOD.gardenReady()) return;
 		var g = Game.Objects['Farm'].minigame;
 		var gardenIsOpen = Game.Objects['Farm'].onMinigame;
+		// Clean up grid panel if garden was closed
+		if (!gardenIsOpen && MOD.gardenGridPanelOpen) {
+			var gridPanel = l('a11yGardenGridPanel');
+			if (gridPanel) gridPanel.remove();
+			MOD.gardenGridPanelOpen = false;
+			MOD.gardenGridButtons = {};
+		}
 		var stages = ['bud', 'sprout', 'bloom', 'mature'];
 		var getStage = function(age, mature) {
 			if (age >= mature) return 4;
@@ -3691,6 +3899,8 @@ Game.registerMod("nvda accessibility", {
 		MOD.labelOriginalGardenElements(g);
 		// Update accessible plot buttons in-place
 		MOD.updateAllPlotButtons();
+		// Update the grid panel if open
+		MOD.updateGardenGridPanel();
 	},
 	getSpiritSlotEffect: function(god, slotIndex) {
 		var MOD = this;
