@@ -35,13 +35,13 @@ When creating Github releases, make sure that:
 ## Deploying to Steam for Testing
 
 ```bash
-cp main.js "/c/Program Files (x86)/Steam/steamapps/common/Cookie Clicker/resources/app/mods/local/Cookie-Clicker-Accessibility-Mod/"
+cp main.js "/c/Program Files (x86)/Steam/steamapps/common/Cookie Clicker/resources/app/mods/local/Cookie-Clicker-Access/"
 ```
 
 If modules have been updated:
 
 ```bash
-cp modules "/c/Program Files (x86)/Steam/steamapps/common/Cookie Clicker/resources/app/mods/local/Cookie-Clicker-Accessibility-Mod/"
+cp modules "/c/Program Files (x86)/Steam/steamapps/common/Cookie Clicker/resources/app/mods/local/Cookie-Clicker-Access/"
 ```
 
 The mod also requires `info.txt` in the same folder (already deployed). Launch Cookie Clicker, enable the mod in Options > Mods.
