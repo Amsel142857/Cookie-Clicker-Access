@@ -12,7 +12,7 @@ This mod makes Cookie Clicker more accessible with screen readers like NVDA. It 
 
 1. Download the latest release from the [Releases page](https://github.com/Amsel142857/Cookie-Clicker-Access/releases)
 2. Extract the zip file
-3. Copy the "nvdaAccessibility" folder to your Cookie Clicker mods folder:
+3. Copy the "Cookie-Clicker-Access" folder to your Cookie Clicker mods folder:
    `[Steam Install Path]\steamapps\common\Cookie Clicker\resources\app\mods\local\`
 4. Launch Cookie Clicker and enable the mod in Options > Mods
 
