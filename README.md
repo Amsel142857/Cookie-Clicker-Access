@@ -4,7 +4,7 @@ This mod makes Cookie Clicker more accessible with screen readers like NVDA. It 
 
 ## AI Disclaimer
 
-All code in this mod was written by Claude (Anthropic's AI assistant). Human involvement was limited to prompting, direction, and QA testing.
+**All code in this mod is AI-generated.** Development is done entirely by Claude (Anthropic's AI assistant). Human involvement is limited to prompting, direction, and QA testing. No code is written or reviewed by a human developer.
 
 ## Installation
 
@@ -50,7 +50,7 @@ If you want to modify the mod and rebuild the userscript:
 
 ## Getting Started
 
-When the mod loads, it announces "NVDA Accessibility mod version 13.2 loaded." The game interface is organized into navigable sections using headings:
+When the mod loads, it announces "NVDA Accessibility mod version 13.6 loaded." The game interface is organized into navigable sections using headings:
 
 - **News** (H2): The game's news ticker. Focusable but set to aria-live off to avoid noise.
 - **Store** (H2): Contains available upgrades and buildings.
@@ -194,8 +194,10 @@ The current season is shown in the main interface display. When seasons change, 
 
 ## Credits
 
-This mod is a fork of the original [Cookie Clicker NVDA Accessibility Mod](https://github.com/FioraXena/Cookie-Clicker-Enhanced-NVDA-Accessibility-Steam-Only-) by FioraXena.
+This mod is a fork of the original [Cookie Clicker NVDA Accessibility Mod](https://github.com/FioraXena/Cookie-Clicker-Enhanced-NVDA-Accessibility-Steam-Only-) by FioraXena, forked at version 12.
 
 Development is being continued by Amsel, who provides prompting, direction, and QA testing, with all code written by Claude (Anthropic's AI assistant).
+
+Thanks to [guilevi](https://github.com/guilevi) for using Claude to create the Tampermonkey userscript support.
 
 Thanks to Orteil for creating Cookie Clicker!

@@ -1,5 +1,35 @@
 # Cookie Clicker Access - Changelog
 
+## Version 13.6
+
+### Inaccessible Elements
+- Added prestige details to Game Stats panel (run duration, prestige level, CpS%, cookies to next level, ascending gains)
+- Added Buy All Upgrades button accessibility (role, tabindex, keyboard support)
+- Added dragon boost indicator labels when Supreme Intellect aura is active
+- Added jukebox control accessibility (play, loop, auto buttons; seek slider label)
+- Added gift system input labels (gift code, amount, message, error announcements)
+- Hidden mute buttons from screen readers (visual-only feature)
+- Hidden version badge and update notification from screen readers
+
+### Notification System Overhaul
+- Categorized all notifications: startup (persistent, no live region), user-initiated (hidden, live region only), non-user-initiated (persistent + live region)
+- Achievement notifications now persistent until dismissed and announced via live region
+- Shimmer click results suppressed from notifications (already announced via live region)
+
+### Accessible Selector Panels
+- Replaced visual-only background selector with accessible button panel
+- Replaced visual-only golden cookie sound selector with accessible button panel
+- Permanent upgrade slots now show assigned upgrade name in label
+
+### Fixes
+- Fixed wrinkler labels showing cookies sucked without Eye of the Wrinkler upgrade
+- Removed "Click to pop" from wrinkler labels
+- Fixed news ticker: grandma quotes and speaker now read on same line
+- Fixed pantheon focus issues: stopped DOM reordering, anchored spirit elements to placeholders
+- Rounded garden times to nearest minute to prevent screen reader spam
+- Hidden You building customizer (values are meaningless without visual preview)
+- Added guilevi credit to README for Tampermonkey userscript support
+
 ## Version 13.2
 
 - Press Escape to close any open minigame panel, dragon panel, or milk selector

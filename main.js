@@ -253,6 +253,17 @@ Game.registerMod("nvda accessibility", {
 						});
 					}
 				}
+				// Gift system: label inputs
+				if (promptContent && (promptContent.innerHTML.indexOf('GiftSend') !== -1 || promptContent.innerHTML.indexOf('GiftRedeem') !== -1)) {
+					var giftCode = l('giftCode');
+					if (giftCode) giftCode.setAttribute('aria-label', 'Gift code');
+					var giftAmount = l('giftAmount');
+					if (giftAmount) giftAmount.setAttribute('aria-label', 'Gift amount');
+					var giftMessage = l('giftMessage');
+					if (giftMessage) giftMessage.setAttribute('aria-label', 'Gift message');
+					var giftError = l('giftError');
+					if (giftError) giftError.setAttribute('aria-live', 'polite');
+				}
 				// Focus the heading if present, otherwise first option
 				var heading = promptContent ? promptContent.querySelector('h3') : null;
 				if (heading) {
@@ -263,21 +274,218 @@ Game.registerMod("nvda accessibility", {
 				}
 			}, 100);
 		};
-		// Suppress visual notifications that are redundant with our live region announcements
-		// (achievements, upgrade unlocks) while keeping startup notifications
-		// (welcome back, seasons, sugar lumps, etc.)
+		// Notification system: categorize into startup / user-initiated / non-user-initiated
+		// Startup: persistent visual, no live region
+		// User-initiated: hidden visual, live region only (many already announced by other systems)
+		// Non-user-initiated: persistent visual + live region
 		var origNotifyGlobal = Game.Notify;
+		var showPersistent = function(title, desc, pic, noLog) {
+			origNotifyGlobal.call(Game, title, desc, pic, 0, noLog);
+			setTimeout(function() { MOD.enhanceNotes(); }, 50);
+		};
+		var suppress = function(t, d, noLog) {
+			if (!noLog) Game.AddToLog('<b>' + t + '</b>' + (d ? ' | ' + d : ''));
+		};
 		Game.Notify = function(title, desc, pic, quick, noLog) {
 			var t = (title || '');
 			var d = (desc || '');
-			// Suppress achievement unlock notifications (announced via live region)
-			if (t === loc("Achievement unlocked")) { if (!noLog) Game.AddToLog('<b>'+t+'</b> | '+d); return; }
-			// Suppress upgrade unlock notifications (announced via live region)
-			if (d.indexOf(loc("You've unlocked a new upgrade.")) >= 0) { if (!noLog) Game.AddToLog('<b>'+t+'</b> | '+d); return; }
-			// Announce research notifications via live region
-			if (t === loc("Research has begun")) { MOD.announce(t + '. ' + MOD.stripHtml(d)); }
-			if (t === loc("Research complete")) { MOD.announceUrgent(t + '. ' + MOD.stripHtml(d)); }
+
+			// ===== SHIMMER CLICKS (user-initiated, already announced) =====
+			// shimmerPopupActive is set during golden cookie and reindeer pop handlers
+			if (MOD.shimmerPopupActive) {
+				suppress(t, d, noLog);
+				return;
+			}
+
+			// ===== NON-USER-INITIATED: persistent + live region =====
+			// Achievement unlocked (already announced by achievement tracker)
+			if (t === loc("Achievement unlocked")) {
+				showPersistent(title, desc, pic, noLog);
+				return;
+			}
+			// Upgrade unlocked
+			if (d.indexOf(loc("You've unlocked a new upgrade.")) >= 0) {
+				showPersistent(title, desc, pic, noLog);
+				MOD.announce('New upgrade unlocked: ' + MOD.stripHtml(t));
+				return;
+			}
+			// Research (already announced via live region by lines below)
+			if (t === loc("Research has begun")) {
+				showPersistent(title, desc, pic, noLog);
+				MOD.announce(t + '. ' + MOD.stripHtml(d));
+				return;
+			}
+			if (t === loc("Research complete")) {
+				showPersistent(title, desc, pic, noLog);
+				MOD.announceUrgent(t + '. ' + MOD.stripHtml(d));
+				return;
+			}
+			// Fortune! (news ticker spawns)
+			if (t === loc("Fortune!")) {
+				showPersistent(title, desc, pic, noLog);
+				MOD.announce(MOD.stripHtml(t) + '. ' + MOD.stripHtml(d));
+				return;
+			}
+			// Season ended by timer (already announced by season tracker)
+			for (var s in Game.seasons) {
+				if (Game.seasons[s].over && t.indexOf(Game.seasons[s].over) >= 0) {
+					showPersistent(title, desc, pic, noLog);
+					return;
+				}
+			}
+			// How nice! Found cookies (garden passive harvest reward)
+			if (t === loc("How nice!")) {
+				showPersistent(title, desc, pic, noLog);
+				MOD.announce(MOD.stripHtml(t) + ' ' + MOD.stripHtml(d));
+				return;
+			}
+
+			// ===== USER-INITIATED: hidden visual, live region only =====
+			// Game saved (already announced elsewhere)
+			if (t === loc("Game saved")) {
+				suppress(t, d, noLog);
+				return;
+			}
+			// Game reset
+			if (t === loc("Game reset")) {
+				suppress(t, d, noLog);
+				MOD.announce(MOD.stripHtml(t) + '.');
+				return;
+			}
+			// Ascending
+			if (t === loc("Ascending")) {
+				suppress(t, d, noLog);
+				MOD.announce('Ascending.');
+				return;
+			}
+			// Reincarnated
+			if (t === 'Reincarnated') {
+				suppress(t, d, noLog);
+				MOD.announce('Reincarnated.');
+				return;
+			}
+			// Exploded a wrinkler (already announced by wrinkler system)
+			if (t === loc("Exploded a wrinkler") || t === loc("Exploded a shiny wrinkler")) {
+				suppress(t, d, noLog);
+				return;
+			}
+			// Wrinkler upgrade drop ("You also found...")
+			if (d.indexOf(loc("You also found")) >= 0) {
+				suppress(t, d, noLog);
+				MOD.announce(MOD.stripHtml(t) + ', ' + MOD.stripHtml(d));
+				return;
+			}
+			// Chocolate egg
+			if (t === 'Chocolate egg') {
+				suppress(t, d, noLog);
+				MOD.announce('Chocolate egg. ' + MOD.stripHtml(d));
+				return;
+			}
+			// Sugar blessing activated
+			if (t === loc("Sugar blessing activated!")) {
+				suppress(t, d, noLog);
+				MOD.announce(MOD.stripHtml(t) + ' ' + MOD.stripHtml(d));
+				return;
+			}
+			// Sugar lump cooldowns cleared
+			if (t === loc("Sugar lump cooldowns cleared!")) {
+				suppress(t, d, noLog);
+				MOD.announce(MOD.stripHtml(t));
+				return;
+			}
+			// Sugar frenzy (buff tracker handles the buff)
+			if (t === loc("Sugar frenzy!")) {
+				suppress(t, d, noLog);
+				MOD.announce(MOD.stripHtml(t) + ' ' + MOD.stripHtml(d));
+				return;
+			}
+			// Found an egg (Easter)
+			if (t === loc("You found an egg!")) {
+				suppress(t, d, noLog);
+				MOD.announce(MOD.stripHtml(t) + ' ' + MOD.stripHtml(d));
+				return;
+			}
+			// Found a present / In the festive hat (Santa evolve)
+			if (t === loc("Found a present!") || t === loc("In the festive hat, you find...")) {
+				suppress(t, d, noLog);
+				MOD.announce(MOD.stripHtml(t) + ' ' + MOD.stripHtml(d));
+				return;
+			}
+			// Santa's dominion granted ("You are granted...")
+			var santaDominion = Game.Upgrades["Santa's dominion"];
+			if (santaDominion && t.indexOf(santaDominion.dname || santaDominion.name) >= 0) {
+				suppress(t, d, noLog);
+				MOD.announce(MOD.stripHtml(t));
+				return;
+			}
+			// Dragon Orbs wish (from selling buildings)
+			if (t === loc("Dragon Orbs") || t === 'Dragon Orbs!') {
+				suppress(t, d, noLog);
+				MOD.announce(MOD.stripHtml(t) + '. ' + MOD.stripHtml(d));
+				return;
+			}
+			// Dragon dropped something (already announced by pet handler)
+			if (d.indexOf(loc("Your dragon dropped something!")) >= 0) {
+				suppress(t, d, noLog);
+				return;
+			}
+			// Shimmering veil changes
+			if (t === loc("The shimmering veil disappears...") || t === loc("The reinforced membrane protects the shimmering veil.")) {
+				suppress(t, d, noLog);
+				MOD.announce(MOD.stripHtml(t));
+				return;
+			}
+			// Debug clicks
+			if (t === 'Thou doth ruineth the fun!' || t === 'A good click.' || t === 'A solid click.' || t === 'A mediocre click.' || t === 'An excellent click!') {
+				suppress(t, d, noLog);
+				return;
+			}
+
+			// ===== STARTUP: persistent, no live region =====
+			// Welcome back
+			if (t === loc("Welcome back!")) {
+				showPersistent(title, desc, pic, noLog);
+				return;
+			}
+			// Broken mods
+			if (t.indexOf(loc("Some mods couldn't be loaded:")) >= 0) {
+				showPersistent(title, desc, pic, noLog);
+				return;
+			}
+			// Back up your save
+			if (t === loc("Back up your save!")) {
+				showPersistent(title, desc, pic, noLog);
+				return;
+			}
+			// Season start on load
+			if (t === loc("Valentine's Day!") || t === loc("Business Day!") || t === loc("Halloween!") || t === loc("Christmas time!") || t === loc("Easter!")) {
+				showPersistent(title, desc, pic, noLog);
+				return;
+			}
+			// Sugar lumps introduction
+			if (t === loc("Sugar lumps!")) {
+				showPersistent(title, desc, pic, noLog);
+				return;
+			}
+			// Sugar lumps harvested while away (title is empty)
+			if (t === '' && d.indexOf(loc("%1 sugar lump")) >= 0) {
+				showPersistent(title, desc, pic, noLog);
+				return;
+			}
+			// Game loaded (brief, not useful — suppress)
+			if (t === loc("Game loaded")) {
+				suppress(t, d, noLog);
+				return;
+			}
+			// Error notifications
+			if (t === loc("Error while saving") || t === loc("Error importing save") || t === 'Saving failed!' || t === loc("Error!")) {
+				showPersistent(title, desc, pic, noLog);
+				return;
+			}
+
+			// ===== DEFAULT: pass through with original behavior =====
 			origNotifyGlobal.call(this, title, desc, pic, quick, noLog);
+			setTimeout(function() { MOD.enhanceNotes(); }, 50);
 		};
 		// Wrap Game.UpdateMenu to suppress rebuilds while a menu is open and already enhanced
 		// Game.UpdateMenu() rebuilds menu innerHTML every 5 seconds, destroying NVDA's focus position
@@ -405,6 +613,8 @@ Game.registerMod("nvda accessibility", {
 			MOD.enhanceSantaUI();
 			MOD.enhanceQoLSelectors();
 			MOD.setupMilkSelectorOverride();
+			MOD.setupBackgroundSelectorOverride();
+			MOD.setupSoundSelectorOverride();
 			MOD.enhanceBuildingMinigames();
 			MOD.startBuffTimer();
 			// New modules
@@ -451,8 +661,8 @@ Game.registerMod("nvda accessibility", {
 				MOD.filterUnownedBuildings();
 			}, 100);
 		});
-		Game.Notify('Accessibility Enhanced', 'Version 13.5', [10, 0], 6);
-		this.announce('NVDA Accessibility mod version 13.5 loaded.');
+		Game.Notify('Accessibility Enhanced', 'Version 13.6', [10, 0], 6);
+		this.announce('NVDA Accessibility mod version 13.6 loaded.');
 	},
 	overrideDrawBuildings: function() {
 		var MOD = this;
@@ -746,14 +956,24 @@ Game.registerMod("nvda accessibility", {
 						MOD.announce('Recovered ' + rewardText + ' cookies.');
 						// Update labels immediately so hidden slots are current
 						MOD.updateWrinklerLabels();
-						// Move focus to next visible wrinkler, or "no wrinklers" message
+						// Move focus to nearest visible wrinkler (search forward, then backward)
 						var nextFound = false;
-						for (var ni = 0; ni < MOD.wrinklerOverlays.length; ni++) {
+						for (var ni = idx + 1; ni < MOD.wrinklerOverlays.length; ni++) {
 							var nBtn = MOD.wrinklerOverlays[ni];
 							if (nBtn && nBtn.parentNode && nBtn.parentNode.style.display !== 'none') {
 								nBtn.focus();
 								nextFound = true;
 								break;
+							}
+						}
+						if (!nextFound) {
+							for (var ni = idx - 1; ni >= 0; ni--) {
+								var nBtn = MOD.wrinklerOverlays[ni];
+								if (nBtn && nBtn.parentNode && nBtn.parentNode.style.display !== 'none') {
+									nBtn.focus();
+									nextFound = true;
+									break;
+								}
 							}
 						}
 						if (!nextFound) {
@@ -783,8 +1003,13 @@ Game.registerMod("nvda accessibility", {
 			if (w && w.phase > 0) {
 				activeCount++;
 				currentWrinklers[i] = true;
-				var s = Beautify(w.sucked), t = w.type === 1 ? 'Shiny ' : '';
-				o.textContent = t + 'Wrinkler: ' + s + ' cookies sucked. Click to pop.';
+				var t = w.type === 1 ? 'Shiny ' : '';
+				var label = t + 'Wrinkler: ';
+				if (Game.Has('Eye of the wrinkler')) {
+					label += Beautify(w.sucked) + ' cookies sucked. ';
+				}
+				label = label.trim();
+				o.textContent = label;
 				o.parentNode.style.display = 'inline-block';
 
 				// Announce new wrinkler spawn (only once per wrinkler)
@@ -1785,8 +2010,28 @@ Game.registerMod("nvda accessibility", {
 		}
 	},
 	setupNewsTicker: function() {
-		// News ticker disabled - too noisy for screen readers
-		// Users can manually navigate to read if needed
+		var MOD = this;
+		// Wrap Game.TickerDraw to fix quote/attribution reading in screen readers.
+		// The game uses <q> and <sig> elements for grandma quotes. NVDA treats
+		// <q> as a semantic object (adding its own line) and <sig> is display:block,
+		// so the quote and speaker end up on separate lines in browse mode.
+		// Fix: replace <q>text</q><sig>name</sig> with a single flat <span>.
+		var origTickerDraw = Game.TickerDraw;
+		Game.TickerDraw = function() {
+			origTickerDraw.apply(this, arguments);
+			var tickerEl = l('commentsText1');
+			if (tickerEl) {
+				var q = tickerEl.querySelector('q');
+				var sig = tickerEl.querySelector('sig');
+				if (q && sig) {
+					var flat = document.createElement('span');
+					flat.style.fontStyle = 'italic';
+					flat.textContent = '\u201c' + q.textContent + '\u201d \u2014' + sig.textContent;
+					tickerEl.innerHTML = '';
+					tickerEl.appendChild(flat);
+				}
+			}
+		};
 	},
 	setupGoldenCookieAnnouncements: function() {
 		var MOD = this;
@@ -2031,8 +2276,9 @@ Game.registerMod("nvda accessibility", {
 				MOD.announceUrgent(n + ' started for ' + duration + ' seconds!');
 			} else if (cur[n].time > MOD.lastBuffs[n].time) {
 				// Buff was refreshed — time went up instead of the normal decrease
-				var duration = Math.ceil(cur[n].maxTime / Game.fps);
-				MOD.announceUrgent(n + ' refreshed for ' + duration + ' seconds!');
+				var remaining = Math.ceil(cur[n].time / Game.fps);
+				var added = Math.ceil((cur[n].time - MOD.lastBuffs[n].time) / Game.fps);
+				MOD.announceUrgent(n + ' extended by ' + added + ' seconds, ' + remaining + 's remaining.');
 			}
 		}
 		// Announce ended buffs
@@ -2106,6 +2352,33 @@ Game.registerMod("nvda accessibility", {
 			if (mg) {
 				MOD.enhanceMinigameHeader(bld, mgName, mg);
 			}
+			// Dragon boost indicator — visible when Supreme Intellect aura is active
+			var dragonBoost = l('productDragonBoost' + bld.id);
+			if (dragonBoost) {
+				if (dragonBoost.style.display !== 'none' && mg && mg.dragonBoostTooltip) {
+					var boostText = 'Dragon boost: ' + MOD.stripHtml(mg.dragonBoostTooltip());
+					MOD.setAttributeIfChanged(dragonBoost, 'aria-label', boostText);
+					MOD.setAttributeIfChanged(dragonBoost, 'tabindex', '0');
+					dragonBoost.removeAttribute('aria-hidden');
+				} else {
+					MOD.setAttributeIfChanged(dragonBoost, 'aria-hidden', 'true');
+					MOD.setAttributeIfChanged(dragonBoost, 'tabindex', '-1');
+				}
+			}
+		}
+		// Hide "Customize" button on the You building — purely visual customizer with no text descriptions
+		var youBld = Game.Objects['You'];
+		if (youBld && youBld.l) {
+			var customizeBtn = youBld.l.querySelector('.onlyOnCanvas');
+			if (customizeBtn) {
+				customizeBtn.setAttribute('aria-hidden', 'true');
+				customizeBtn.setAttribute('tabindex', '-1');
+			}
+		}
+		// Hide muted building icon strip — purely visual
+		var buildingsMute = l('buildingsMute');
+		if (buildingsMute) {
+			MOD.setAttributeIfChanged(buildingsMute, 'aria-hidden', 'true');
 		}
 		// Also enhance store controls
 		MOD.enhanceStoreControls();
@@ -2117,10 +2390,10 @@ Game.registerMod("nvda accessibility", {
 		// Product button labels are set by enhanceBuildingProduct().
 		// Building row labels are set by labelBuildingRows().
 		// Here we only handle the mute button (referenced directly via bld.muteL).
+		// Mute buttons are purely visual (hide building animation canvas) — hide from screen readers
 		if (bld.muteL) {
-			MOD.setAttributeIfChanged(bld.muteL, 'aria-label', 'Mute ' + bldName);
-			MOD.setAttributeIfChanged(bld.muteL, 'role', 'button');
-			MOD.setAttributeIfChanged(bld.muteL, 'tabindex', '0');
+			MOD.setAttributeIfChanged(bld.muteL, 'aria-hidden', 'true');
+			MOD.setAttributeIfChanged(bld.muteL, 'tabindex', '-1');
 		}
 	},
 	enhanceStoreControls: function() {
@@ -3488,6 +3761,16 @@ Game.registerMod("nvda accessibility", {
 				' | <strong>Grid:</strong> ' + g.plotWidth + 'x' + g.plotHeight;
 		}
 	},
+	getSpiritSlotEffect: function(god, slotIndex) {
+		var MOD = this;
+		var descKey = 'desc' + (slotIndex + 1);
+		var parts = [];
+		if (god.descBefore) parts.push(MOD.stripHtml(god.descBefore));
+		if (god[descKey]) parts.push(MOD.stripHtml(god[descKey]));
+		else if (god.desc1) parts.push(MOD.stripHtml(god.desc1));
+		if (god.descAfter) parts.push(MOD.stripHtml(god.descAfter));
+		return parts.join(' ');
+	},
 	pantheonReady: function() {
 		try {
 			var temple = Game.Objects['Temple'];
@@ -3514,7 +3797,8 @@ Game.registerMod("nvda accessibility", {
 			var lbl = slots[i] + ' slot: ';
 			if (spiritId !== -1 && pan.godsById[spiritId]) {
 				var god = pan.godsById[spiritId];
-				lbl += god.name + '. Press Enter to remove.';
+				var effect = MOD.getSpiritSlotEffect(god, i);
+				lbl += god.name + ', ' + effect + '. Press Enter to remove.';
 				MOD.setAttributeIfChanged(slotEl, 'role', 'button');
 			} else {
 				lbl += 'Empty';
@@ -3862,6 +4146,8 @@ Game.registerMod("nvda accessibility", {
 						}
 						// Refresh grimoire labels immediately after casting
 						setTimeout(function() { MOD.enhanceGrimoireMinigame(); }, 100);
+						// Update features panel immediately so buff time changes (e.g. Stretch Time) are reflected
+						setTimeout(function() { MOD.updateFeaturesPanel(); }, 200);
 						// Clear flag after 3s to cover Gambler's Fever Dream delayed cast
 						setTimeout(function() { MOD.grimoireSpellCasting = false; }, 3000);
 					}; })(sp));
@@ -4284,6 +4570,11 @@ Game.registerMod("nvda accessibility", {
 				b.setAttribute('aria-label', labels[id] || id);
 			}
 		});
+		// Hide version badge and update notification — purely visual, not gameplay-relevant
+		var versionNumber = l('versionNumber');
+		if (versionNumber) versionNumber.setAttribute('aria-hidden', 'true');
+		var checkForUpdate = l('checkForUpdate');
+		if (checkForUpdate) checkForUpdate.setAttribute('aria-hidden', 'true');
 		// Prompt close button (closes Options, Stats, Info, and dialog prompts)
 		var promptClose = l('promptClose');
 		if (promptClose && !promptClose.dataset.a11yEnhanced) {
@@ -4351,11 +4642,11 @@ Game.registerMod("nvda accessibility", {
 				}
 			}
 		}
-		// Make ticker focusable if it exists
-		var ticker = l('ticker');
-		if (ticker) {
-			ticker.setAttribute('tabindex', '0');
-			ticker.setAttribute('aria-live', 'off');
+		// Make ticker focusable and set aria-live off (users read it manually in browse mode)
+		var tickerEl = l('commentsText1');
+		if (tickerEl) {
+			tickerEl.setAttribute('tabindex', '0');
+			tickerEl.setAttribute('aria-live', 'off');
 		}
 		// Add Buildings heading between upgrades and building list in the store
 		var products = l('products');
@@ -4412,6 +4703,20 @@ Game.registerMod("nvda accessibility", {
 					}
 				}
 			});
+		}
+		// Buy All Upgrades button — only exists when player has 'Inspired checklist'
+		var buyAllBtn = l('storeBuyAllButton');
+		if (buyAllBtn && !buyAllBtn.dataset.a11yEnhanced) {
+			buyAllBtn.setAttribute('role', 'button');
+			buyAllBtn.setAttribute('tabindex', '0');
+			buyAllBtn.setAttribute('aria-label', 'Buy all affordable upgrades. Shift click to vault instead.');
+			buyAllBtn.addEventListener('keydown', function(e) {
+				if (e.key === 'Enter' || e.key === ' ') {
+					e.preventDefault();
+					buyAllBtn.click();
+				}
+			});
+			buyAllBtn.dataset.a11yEnhanced = 'true';
 		}
 	},
 	stripHtml: function(h) {
@@ -5397,6 +5702,20 @@ Game.registerMod("nvda accessibility", {
 		var t = n + '. ';
 		if (u.bought) {
 			t += 'Owned.';
+			// For permanent upgrade slots, show the assigned upgrade name
+			var slotMatch = n.match(/Permanent upgrade slot (I+V?|IV|V)/);
+			if (slotMatch) {
+				var slotNames = {'I':0,'II':1,'III':2,'IV':3,'V':4};
+				var slotIdx = slotNames[slotMatch[1]];
+				if (slotIdx !== undefined && Game.permanentUpgrades[slotIdx] !== -1) {
+					var assignedUpg = Game.UpgradesById[Game.permanentUpgrades[slotIdx]];
+					if (assignedUpg) {
+						t += ' Contains: ' + (assignedUpg.dname || assignedUpg.name) + '.';
+					}
+				} else if (slotIdx !== undefined) {
+					t += ' Empty.';
+				}
+			}
 		} else {
 			var canAfford = Game.heavenlyChips >= u.getPrice();
 			t += 'Cost: ' + p + ' heavenly chips. ';
@@ -5591,6 +5910,8 @@ Game.registerMod("nvda accessibility", {
 			if (MOD.gardenReady()) {
 				MOD.trackGardenPlotChanges();
 			}
+			// Enhance jukebox and other toggleBox content
+			MOD.enhanceToggleBoxContent();
 		}
 		// Refresh upgrade shop when store changes
 		if (Game.storeToRefresh !== MOD.lastStoreRefresh) {
@@ -5709,26 +6030,6 @@ Game.registerMod("nvda accessibility", {
 			MOD.setAttributeIfChanged(milkCrate, 'tabindex', '-1');
 			milkCrate.setAttribute('aria-hidden', 'true');
 		}
-		// Check if background selector is unlocked (requires "Background selector" heavenly upgrade)
-		var bgUnlocked = Game.Has('Background selector');
-		var bgBox = l('backgroundBox');
-		if (bgBox) {
-			if (bgUnlocked) {
-				MOD.setAttributeIfChanged(bgBox, 'role', 'button');
-				MOD.setAttributeIfChanged(bgBox, 'tabindex', '0');
-				bgBox.removeAttribute('aria-hidden');
-				MOD.updateBackgroundLabel();
-				if (!bgBox.dataset.a11yEnhanced) {
-					bgBox.dataset.a11yEnhanced = 'true';
-					bgBox.addEventListener('keydown', function(e) {
-						if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); bgBox.click(); }
-					});
-				}
-			} else {
-				MOD.setAttributeIfChanged(bgBox, 'tabindex', '-1');
-				bgBox.setAttribute('aria-hidden', 'true');
-			}
-		}
 		// Season selector - check if any season switcher upgrade is owned
 		var seasonUnlocked = Game.Has('Season switcher');
 		var seasonBox = l('seasonBox');
@@ -5747,19 +6048,6 @@ Game.registerMod("nvda accessibility", {
 			} else {
 				MOD.setAttributeIfChanged(seasonBox, 'tabindex', '-1');
 				seasonBox.setAttribute('aria-hidden', 'true');
-			}
-		}
-		// Sound/Volume selector
-		var soundBox = l('soundBox');
-		if (soundBox) {
-			MOD.setAttributeIfChanged(soundBox, 'role', 'button');
-			MOD.setAttributeIfChanged(soundBox, 'tabindex', '0');
-			MOD.updateSoundLabel();
-			if (!soundBox.dataset.a11yEnhanced) {
-				soundBox.dataset.a11yEnhanced = 'true';
-				soundBox.addEventListener('keydown', function(e) {
-					if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); soundBox.click(); }
-				});
 			}
 		}
 		// Generic store pre-buttons (only if visible/unlocked)
@@ -5922,16 +6210,225 @@ Game.registerMod("nvda accessibility", {
 		heading.focus();
 	},
 	updateBackgroundLabel: function() {
-		var bgBox = l('backgroundBox');
-		if (!bgBox) return;
-		if (!Game.Has('Background selector')) return;
-		var bgName = 'Automatic';
-		if (Game.bgType !== undefined && Game.bgType > 0 && Game.Backgrounds && Game.Backgrounds[Game.bgType]) {
-			bgName = Game.Backgrounds[Game.bgType].name || 'Background ' + Game.bgType;
-		} else if (Game.bgType === 0) {
-			bgName = 'Automatic (changes with milk)';
+		var MOD = this;
+		// Update the background selector crate in the store with the current background name
+		var bgUpg = Game.Upgrades['Background selector'];
+		if (!bgUpg || !bgUpg.unlocked) return;
+		var bgCrate = MOD.findSelectorCrate('Background selector');
+		if (bgCrate) {
+			var bgName = 'Automatic';
+			if (Game.bgType !== undefined && Game.bgType > 0 && Game.AllBGs && Game.AllBGs[Game.bgType]) {
+				bgName = Game.AllBGs[Game.bgType].name || 'Background ' + Game.bgType;
+			} else if (Game.bgType === 0) {
+				bgName = 'Automatic (changes with milk)';
+			}
+			bgCrate.setAttribute('aria-label', 'Background selector. Current: ' + bgName + '. Click to open selector.');
 		}
-		bgBox.setAttribute('aria-label', 'Background selector. Current: ' + bgName + '. Click to change background.');
+	},
+	setupBackgroundSelectorOverride: function() {
+		var MOD = this;
+		var bgUpg = Game.Upgrades['Background selector'];
+		if (!bgUpg) return;
+		var origBuy = Game.Upgrade.prototype.buy;
+		bgUpg.buy = function(bypass) {
+			var wasOpen = (Game.choiceSelectorOn === bgUpg.id);
+			var panelExists = !!l('a11yBgSelectorPanel');
+			if (wasOpen || panelExists) {
+				origBuy.call(this, bypass);
+				var panel = l('a11yBgSelectorPanel');
+				if (panel) panel.remove();
+			} else {
+				origBuy.call(this, bypass);
+				var toggleBox = l('toggleBox');
+				if (toggleBox && toggleBox.style.display === 'block') {
+					toggleBox.style.display = 'none';
+					toggleBox.innerHTML = '';
+					MOD.createBackgroundSelectorPanel(bgUpg);
+				}
+			}
+		};
+	},
+	createBackgroundSelectorPanel: function(upgrade) {
+		var MOD = this;
+		var oldPanel = l('a11yBgSelectorPanel');
+		if (oldPanel) oldPanel.remove();
+		var choices = upgrade.choicesFunction();
+		if (!choices || !choices.length) return;
+		var selectedId = Game.bgType || 0;
+		// Assign IDs and sort like the game does
+		for (var i = 0; i < choices.length; i++) {
+			if (choices[i]) {
+				choices[i].id = i;
+				choices[i].order = choices[i].order || 0;
+			}
+		}
+		choices.sort(function(a, b) {
+			if (!a) return 1;
+			if (!b) return -1;
+			if (a.order > b.order) return 1;
+			if (a.order < b.order) return -1;
+			return 0;
+		});
+		// Create panel
+		var panel = document.createElement('div');
+		panel.id = 'a11yBgSelectorPanel';
+		panel.style.cssText = 'background:#1a1a2e;border:2px solid #c90;padding:10px;margin:10px 0;';
+		// Heading
+		var heading = document.createElement('h3');
+		heading.style.cssText = 'color:#fc0;margin:0 0 10px 0;font-size:14px;';
+		heading.textContent = 'Background selector';
+		heading.setAttribute('tabindex', '-1');
+		panel.appendChild(heading);
+		// Close button
+		var closeBtn = document.createElement('button');
+		closeBtn.type = 'button';
+		closeBtn.textContent = 'Close';
+		closeBtn.setAttribute('aria-label', 'Close background selector');
+		closeBtn.style.cssText = 'display:block;width:100%;padding:8px;margin:5px 0;background:#633;border:1px solid #a66;color:#fff;cursor:pointer;';
+		closeBtn.addEventListener('click', function() {
+			panel.remove();
+			Game.choiceSelectorOn = -1;
+			PlaySound('snd/tickOff.mp3');
+		});
+		panel.appendChild(closeBtn);
+		// Escape key to close
+		panel.addEventListener('keydown', function(e) {
+			if (e.key === 'Escape') {
+				e.preventDefault();
+				e.stopPropagation();
+				panel.remove();
+				Game.choiceSelectorOn = -1;
+				PlaySound('snd/tickOff.mp3');
+			}
+		});
+		// Background choice buttons
+		for (var i = 0; i < choices.length; i++) {
+			if (!choices[i]) continue;
+			var choice = choices[i];
+			var id = choice.id;
+			var isSelected = (id == selectedId);
+			if (choice.div) {
+				var divider = document.createElement('hr');
+				divider.style.cssText = 'border:1px solid #444;margin:5px 0;';
+				panel.appendChild(divider);
+			}
+			var btn = document.createElement('button');
+			btn.type = 'button';
+			btn.textContent = choice.name;
+			btn.dataset.bgId = id;
+			btn.dataset.bgName = choice.name;
+			btn.setAttribute('aria-label', choice.name + (isSelected ? ', currently selected' : ''));
+			btn.style.cssText = 'display:block;width:100%;padding:8px;margin:2px 0;background:' +
+				(isSelected ? '#363' : '#336') + ';border:1px solid ' +
+				(isSelected ? '#6a6' : '#66a') + ';color:#fff;cursor:pointer;font-size:13px;';
+			(function(choiceId, choiceName) {
+				btn.addEventListener('click', function() {
+					upgrade.choicesPick(choiceId);
+					MOD.announce('Background changed to ' + choiceName);
+					PlaySound('snd/tick.mp3');
+					panel.querySelectorAll('button[data-bg-id]').forEach(function(b) {
+						var bId = parseInt(b.dataset.bgId);
+						var bSel = (bId === choiceId);
+						b.setAttribute('aria-label', b.dataset.bgName + (bSel ? ', currently selected' : ''));
+						b.style.background = bSel ? '#363' : '#336';
+						b.style.borderColor = bSel ? '#6a6' : '#66a';
+					});
+					MOD.updateBackgroundLabel();
+				});
+			})(id, choice.name);
+			panel.appendChild(btn);
+		}
+		// Insert into sectionLeft near other selector panels
+		var sectionLeft = l('sectionLeft');
+		var sectionLeftExtra = l('sectionLeftExtra');
+		if (sectionLeft && sectionLeftExtra) {
+			sectionLeft.insertBefore(panel, sectionLeftExtra);
+		} else if (sectionLeft) {
+			sectionLeft.appendChild(panel);
+		}
+		heading.focus();
+	},
+	enhanceNotes: function() {
+		var MOD = this;
+		var notes = document.querySelectorAll('#notes .note');
+		for (var i = 0; i < notes.length; i++) {
+			var note = notes[i];
+			if (note.dataset.a11yNoteEnhanced) continue;
+			note.dataset.a11yNoteEnhanced = 'true';
+			// Build an accessible label from the note's title and description
+			var h3 = note.querySelector('h3');
+			var h5 = note.querySelector('h5');
+			var title = h3 ? MOD.stripHtml(h3.innerHTML) : '';
+			var desc = h5 ? MOD.stripHtml(h5.innerHTML) : '';
+			var label = title;
+			if (desc) label += ', ' + desc;
+			note.setAttribute('aria-label', label);
+			note.setAttribute('tabindex', '0');
+			// Make the close button inside this note accessible
+			var closeBtn = note.querySelector('.close');
+			if (closeBtn) {
+				closeBtn.setAttribute('role', 'button');
+				closeBtn.setAttribute('tabindex', '0');
+				closeBtn.setAttribute('aria-label', 'Dismiss');
+				if (!closeBtn.dataset.a11yEnhanced) {
+					closeBtn.dataset.a11yEnhanced = '1';
+					closeBtn.addEventListener('keydown', function(e) {
+						if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); this.click(); }
+					});
+				}
+			}
+		}
+	},
+	enhanceToggleBoxContent: function() {
+		var MOD = this;
+		var toggleBox = l('toggleBox');
+		if (!toggleBox || toggleBox.style.display === 'none') return;
+		// Jukebox controls
+		var playBtn = l('jukeboxMusicPlay');
+		if (playBtn && !playBtn.dataset.a11yEnhanced) {
+			playBtn.setAttribute('role', 'button');
+			playBtn.setAttribute('tabindex', '0');
+			playBtn.addEventListener('keydown', function(e) {
+				if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); this.click(); }
+			});
+			playBtn.dataset.a11yEnhanced = 'true';
+		}
+		var loopBtn = l('jukeboxMusicLoop');
+		if (loopBtn && !loopBtn.dataset.a11yEnhanced) {
+			loopBtn.setAttribute('role', 'button');
+			loopBtn.setAttribute('tabindex', '0');
+			loopBtn.addEventListener('keydown', function(e) {
+				if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); this.click(); }
+			});
+			loopBtn.dataset.a11yEnhanced = 'true';
+		}
+		var autoBtn = l('jukeboxMusicAuto');
+		if (autoBtn && !autoBtn.dataset.a11yEnhanced) {
+			autoBtn.setAttribute('role', 'button');
+			autoBtn.setAttribute('tabindex', '0');
+			autoBtn.addEventListener('keydown', function(e) {
+				if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); this.click(); }
+			});
+			autoBtn.dataset.a11yEnhanced = 'true';
+		}
+		// Update dynamic labels for jukebox state
+		if (playBtn) {
+			var playText = playBtn.textContent || '';
+			MOD.setAttributeIfChanged(playBtn, 'aria-label', playText === 'Pause' || playText === loc('Pause') ? 'Pause' : 'Play');
+		}
+		if (loopBtn) {
+			var loopOn = !loopBtn.classList.contains('off');
+			MOD.setAttributeIfChanged(loopBtn, 'aria-label', 'Loop: ' + (loopOn ? 'on' : 'off'));
+		}
+		if (autoBtn) {
+			var autoOn = !autoBtn.classList.contains('off');
+			MOD.setAttributeIfChanged(autoBtn, 'aria-label', 'Auto: ' + (autoOn ? 'on' : 'off'));
+		}
+		// Seek slider
+		var scrub = l('jukeboxMusicScrub');
+		if (scrub) {
+			MOD.setAttributeIfChanged(scrub, 'aria-label', 'Seek position');
+		}
 	},
 	updateSeasonLabel: function() {
 		var seasonBox = l('seasonBox');
@@ -5944,11 +6441,122 @@ Game.registerMod("nvda accessibility", {
 		seasonBox.setAttribute('aria-label', 'Season selector. Current: ' + seasonName + '. Click to change or start a season.');
 	},
 	updateSoundLabel: function() {
-		var soundBox = l('soundBox');
-		if (!soundBox) return;
-		var volume = Game.volume !== undefined ? Game.volume : 50;
-		var status = volume > 0 ? 'On (' + volume + '%)' : 'Muted';
-		soundBox.setAttribute('aria-label', 'Sound selector. Volume: ' + status + '. Click to adjust sound settings.');
+		var MOD = this;
+		var soundUpg = Game.Upgrades['Golden cookie sound selector'];
+		if (!soundUpg || !soundUpg.unlocked) return;
+		var soundCrate = MOD.findSelectorCrate('Golden cookie sound selector');
+		if (soundCrate) {
+			var chimeName = 'No sound';
+			if (Game.chimeType !== undefined && Game.chimeType > 0) {
+				var choices = soundUpg.choicesFunction();
+				if (choices && choices[Game.chimeType]) {
+					chimeName = choices[Game.chimeType].name || 'Sound ' + Game.chimeType;
+				}
+			}
+			soundCrate.setAttribute('aria-label', 'Golden cookie sound selector. Current: ' + chimeName + '. Click to open selector.');
+		}
+	},
+	setupSoundSelectorOverride: function() {
+		var MOD = this;
+		var soundUpg = Game.Upgrades['Golden cookie sound selector'];
+		if (!soundUpg) return;
+		var origBuy = Game.Upgrade.prototype.buy;
+		soundUpg.buy = function(bypass) {
+			var wasOpen = (Game.choiceSelectorOn === soundUpg.id);
+			var panelExists = !!l('a11ySoundSelectorPanel');
+			if (wasOpen || panelExists) {
+				origBuy.call(this, bypass);
+				var panel = l('a11ySoundSelectorPanel');
+				if (panel) panel.remove();
+			} else {
+				origBuy.call(this, bypass);
+				var toggleBox = l('toggleBox');
+				if (toggleBox && toggleBox.style.display === 'block') {
+					toggleBox.style.display = 'none';
+					toggleBox.innerHTML = '';
+					MOD.createSoundSelectorPanel(soundUpg);
+				}
+			}
+		};
+	},
+	createSoundSelectorPanel: function(upgrade) {
+		var MOD = this;
+		var oldPanel = l('a11ySoundSelectorPanel');
+		if (oldPanel) oldPanel.remove();
+		var choices = upgrade.choicesFunction();
+		if (!choices || !choices.length) return;
+		var selectedId = Game.chimeType || 0;
+		// Create panel
+		var panel = document.createElement('div');
+		panel.id = 'a11ySoundSelectorPanel';
+		panel.style.cssText = 'background:#1a1a2e;border:2px solid #c90;padding:10px;margin:10px 0;';
+		// Heading
+		var heading = document.createElement('h3');
+		heading.style.cssText = 'color:#fc0;margin:0 0 10px 0;font-size:14px;';
+		heading.textContent = 'Golden cookie sound selector';
+		heading.setAttribute('tabindex', '-1');
+		panel.appendChild(heading);
+		// Close button
+		var closeBtn = document.createElement('button');
+		closeBtn.type = 'button';
+		closeBtn.textContent = 'Close';
+		closeBtn.setAttribute('aria-label', 'Close sound selector');
+		closeBtn.style.cssText = 'display:block;width:100%;padding:8px;margin:5px 0;background:#633;border:1px solid #a66;color:#fff;cursor:pointer;';
+		closeBtn.addEventListener('click', function() {
+			panel.remove();
+			Game.choiceSelectorOn = -1;
+			PlaySound('snd/tickOff.mp3');
+		});
+		panel.appendChild(closeBtn);
+		// Escape key to close
+		panel.addEventListener('keydown', function(e) {
+			if (e.key === 'Escape') {
+				e.preventDefault();
+				e.stopPropagation();
+				panel.remove();
+				Game.choiceSelectorOn = -1;
+				PlaySound('snd/tickOff.mp3');
+			}
+		});
+		// Sound choice buttons
+		for (var i = 0; i < choices.length; i++) {
+			if (!choices[i]) continue;
+			var choice = choices[i];
+			var isSelected = (i == selectedId);
+			var btn = document.createElement('button');
+			btn.type = 'button';
+			btn.textContent = choice.name;
+			btn.dataset.soundId = i;
+			btn.dataset.soundName = choice.name;
+			btn.setAttribute('aria-label', choice.name + (isSelected ? ', currently selected' : ''));
+			btn.style.cssText = 'display:block;width:100%;padding:8px;margin:2px 0;background:' +
+				(isSelected ? '#363' : '#336') + ';border:1px solid ' +
+				(isSelected ? '#6a6' : '#66a') + ';color:#fff;cursor:pointer;font-size:13px;';
+			(function(choiceId, choiceName) {
+				btn.addEventListener('click', function() {
+					upgrade.choicesPick(choiceId);
+					MOD.announce('Golden cookie sound changed to ' + choiceName);
+					panel.querySelectorAll('button[data-sound-id]').forEach(function(b) {
+						var bId = parseInt(b.dataset.soundId);
+						var bSel = (bId === choiceId);
+						b.setAttribute('aria-label', b.dataset.soundName + (bSel ? ', currently selected' : ''));
+						b.style.background = bSel ? '#363' : '#336';
+						b.style.borderColor = bSel ? '#6a6' : '#66a';
+					});
+					MOD.updateSoundLabel();
+				});
+			})(i, choice.name);
+			panel.appendChild(btn);
+		}
+		// Insert into sectionLeft
+		var sectionLeft = l('sectionLeft');
+		var sectionLeftExtra = l('sectionLeftExtra');
+		if (sectionLeft && sectionLeftExtra) {
+			sectionLeft.insertBefore(panel, sectionLeftExtra);
+		} else if (sectionLeft) {
+			sectionLeft.appendChild(panel);
+		}
+		heading.focus();
 	},
 	startBuffTimer: function() {
 		// Removed duplicate buff region - using only the H2 Active Buffs panel
@@ -6019,7 +6627,9 @@ Game.registerMod("nvda accessibility", {
 			{ id: 'a11yStatCps', text: 'Cookies per second: Loading...' },
 			{ id: 'a11yStatCpc', text: 'Cookies per click: Loading...' },
 			{ id: 'a11yStatBank', text: 'Cookies in bank: Loading...' },
-			{ id: 'a11yStatBuildings', text: 'Buildings owned: Loading...' }
+			{ id: 'a11yStatBuildings', text: 'Buildings owned: Loading...' },
+			{ id: 'a11yStatHeralds', text: 'Heralds: Loading...' },
+			{ id: 'a11yStatPrestige', text: 'Prestige: Loading...' }
 		];
 		for (var i = 0; i < stats.length; i++) {
 			var line = document.createElement('div');
@@ -6046,6 +6656,7 @@ Game.registerMod("nvda accessibility", {
 		var cpcEl = l('a11yStatCpc');
 		var bankEl = l('a11yStatBank');
 		var bldEl = l('a11yStatBuildings');
+		var heraldEl = l('a11yStatHeralds');
 		if (!cpsEl) return;
 		var cps = Game.cookiesPs || 0;
 		MOD.setTextIfChanged(cpsEl, 'Cookies per second: ' + Beautify(cps, 1));
@@ -6054,6 +6665,48 @@ Game.registerMod("nvda accessibility", {
 		MOD.setTextIfChanged(cpcEl, 'Cookies per click: ' + Beautify(cpc, 1));
 		MOD.setTextIfChanged(bankEl, 'Cookies in bank: ' + Beautify(Game.cookies));
 		MOD.setTextIfChanged(bldEl, 'Buildings owned: ' + Beautify(Game.BuildingsOwned));
+		if (heraldEl) {
+			var heralds = Math.floor(Game.heralds || 0);
+			var heraldText;
+			if (heralds > 0 && Game.Has('Heralds') && Game.ascensionMode !== 1) {
+				heraldText = 'Heralds: ' + heralds + ', +' + heralds + '% cookies per second';
+			} else if (heralds > 0 && !Game.Has('Heralds')) {
+				heraldText = 'Heralds: ' + heralds + ', purchase the Heralds upgrade to benefit';
+			} else if (heralds > 0 && Game.ascensionMode === 1) {
+				heraldText = 'Heralds: ' + heralds + ', not active during Born Again';
+			} else {
+				heraldText = 'Heralds: none currently active';
+			}
+			MOD.setTextIfChanged(heraldEl, heraldText);
+		}
+		// Prestige details and run duration
+		var prestigeEl = l('a11yStatPrestige');
+		if (prestigeEl) {
+			var prestigeText = '';
+			// Run duration
+			var runDate = new Date();
+			runDate.setTime(Date.now() - Game.startDate);
+			var runStr = Game.sayTime(runDate.getTime() / 1000 * Game.fps, -1);
+			prestigeText = 'Run duration: ' + (runStr === '' ? 'just started' : runStr) + '. ';
+			var currentPrestige = Game.prestige || 0;
+			if (currentPrestige > 0) {
+				prestigeText += 'Prestige level: ' + Beautify(currentPrestige) + ' (+' + Beautify(currentPrestige) + '% CpS)';
+			} else {
+				prestigeText += 'Prestige level: 0';
+			}
+			// Compute ascend-now gains and cookies to next level (same math as game-main.js:16536-16569)
+			var chipsOwned = Game.HowMuchPrestige(Game.cookiesReset);
+			var ascendNowToOwn = Math.floor(Game.HowMuchPrestige(Game.cookiesReset + Game.cookiesEarned));
+			var ascendNowToGet = ascendNowToOwn - Math.floor(chipsOwned);
+			if (ascendNowToGet > 0) {
+				prestigeText += ', ascending now would gain ' + Beautify(ascendNowToGet) + ' prestige levels';
+			}
+			var cookiesToNext = Game.HowManyCookiesReset(ascendNowToOwn + 1) - (Game.cookiesEarned + Game.cookiesReset);
+			if (cookiesToNext >= 0) {
+				prestigeText += ', ' + Beautify(cookiesToNext) + ' cookies to next level';
+			}
+			MOD.setTextIfChanged(prestigeEl, prestigeText);
+		}
 	},
 
 	// ============================================
@@ -6144,11 +6797,11 @@ Game.registerMod("nvda accessibility", {
 			items.push({key: 'covenant', text: 'Elder Covenant: active (CpS reduced 5%)'});
 		}
 		// Golden Switch
-		if (Game.Has('Golden switch [on]')) {
+		if (Game.Has('Golden switch [off]')) {
 			items.push({key: 'goldenswitch', text: 'Golden Switch: ON (+50% CpS, no golden cookies)'});
 		}
 		// Shimmering Veil
-		if (Game.Has('Shimmering veil [on]')) {
+		if (Game.Has('Shimmering veil [off]')) {
 			items.push({key: 'veil', text: 'Shimmering Veil: ON (+50% CpS)'});
 		}
 		// Active buffs (timed effects like Frenzy, Click Frenzy, etc.)
@@ -6158,6 +6811,8 @@ Game.registerMod("nvda accessibility", {
 				if (b && b.time > 0) {
 					var remaining = Math.ceil(b.time / Game.fps);
 					var desc = b.desc ? MOD.stripHtml(b.desc) : '';
+					// Strip the "for X minutes/seconds!" duration from desc since we show accurate remaining time
+					desc = desc.replace(/\s*for\s+[^!]*!\s*$/i, '').replace(/\s*for\s+[^.]*\.\s*$/i, '');
 					var buffText = name + ': ' + remaining + 's remaining';
 					if (desc) buffText += ', ' + desc;
 					items.push({key: 'buff-' + name, text: buffText});
@@ -6350,8 +7005,7 @@ Game.registerMod("nvda accessibility", {
 				// Show spirit effect
 				var effectDiv = document.createElement('div');
 				effectDiv.style.cssText = 'color:#ccc;font-size:12px;margin:5px 0;';
-				var descKey = 'desc' + (i + 1);
-				effectDiv.textContent = 'Effect (' + slotMultipliers[i] + '%): ' + MOD.stripHtml(god[descKey] || god.desc1 || '');
+				effectDiv.textContent = 'Effect: ' + MOD.getSpiritSlotEffect(god, i);
 				slotDiv.appendChild(slotHeading);
 				slotDiv.appendChild(effectDiv);
 				// Clear button
