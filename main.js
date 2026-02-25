@@ -2539,6 +2539,12 @@ Game.registerMod("nvda accessibility", {
 			}
 		}
 		el.removeAttribute('aria-labelledby');
+		// Hide the orphaned ariaReader label so it can't be found by browse mode
+		var ariaReader = l('ariaReader-product-' + bld.id);
+		if (ariaReader) {
+			ariaReader.setAttribute('aria-hidden', 'true');
+			ariaReader.style.display = 'none';
+		}
 		MOD.setAttributeIfChanged(el, 'role', 'button');
 		MOD.setAttributeIfChanged(el, 'tabindex', '0');
 		// Hide all child elements inside the product button from screen readers
@@ -4755,17 +4761,16 @@ Game.registerMod("nvda accessibility", {
 			var infoText = MOD.getBuildingInfoText(building);
 			if (existingText) {
 				existingText.textContent = infoText;
-				existingText.setAttribute('aria-label', infoText);
+				existingText.removeAttribute('aria-label');
+				existingText.removeAttribute('role');
+				existingText.removeAttribute('tabindex');
 				// Visibility is controlled by filterUnownedBuildings, not here
 			} else {
-				// Create info text element (not a button - just focusable text)
+				// Create info text element as description source for the building button
 				var infoDiv = document.createElement('div');
 				infoDiv.id = textId;
 				infoDiv.className = 'a11y-building-info';
 				infoDiv.style.cssText = 'display:block;padding:6px;margin:2px 0;font-size:11px;color:#aaa;background:#1a1a1a;border:1px solid #333;';
-				infoDiv.setAttribute('tabindex', '0');
-				infoDiv.setAttribute('role', 'note');
-				infoDiv.setAttribute('aria-label', infoText);
 				infoDiv.textContent = infoText;
 				if (productEl.nextSibling) {
 					productEl.parentNode.insertBefore(infoDiv, productEl.nextSibling);
@@ -5902,6 +5907,9 @@ Game.registerMod("nvda accessibility", {
 		for (var i in Game.ObjectsById) {
 			var bld = Game.ObjectsById[i];
 			if (!bld) continue;
+			// Skip mystery buildings to avoid leaking their real name
+			var highestOwned = MOD.highestOwnedBuildingId !== undefined ? MOD.highestOwnedBuildingId : -1;
+			if (bld.amount === 0 && !bld.locked && (bld.id - highestOwned) >= 2) continue;
 			var ariaLabel = l('ariaReader-product-' + bld.id);
 			if (ariaLabel) {
 				var owned = bld.amount || 0;
