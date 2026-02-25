@@ -1768,7 +1768,6 @@ Game.registerMod("nvda accessibility", {
 					}
 					var el = document.createElement('div');
 					el.setAttribute('tabindex', '0');
-					el.setAttribute('role', 'note');
 					el.textContent = milkLabel + ' ' + milkNames.join(', ');
 					el.style.cssText = 'padding:4px 8px;font-size:11px;';
 					milkParent.parentNode.insertBefore(el, milkParent.nextSibling);
@@ -1799,7 +1798,6 @@ Game.registerMod("nvda accessibility", {
 					}
 					var el = document.createElement('div');
 					el.setAttribute('tabindex', '0');
-					el.setAttribute('role', 'note');
 					el.textContent = santaLabel + ' ' + santaNames.join(', ');
 					el.style.cssText = 'padding:4px 8px;font-size:11px;';
 					d.parentNode.insertBefore(el, d.nextSibling);
@@ -1834,7 +1832,6 @@ Game.registerMod("nvda accessibility", {
 					}
 					var el = document.createElement('div');
 					el.setAttribute('tabindex', '0');
-					el.setAttribute('role', 'note');
 					el.textContent = dragonLabel + ' ' + dragonNames.join(', ');
 					el.style.cssText = 'padding:4px 8px;font-size:11px;';
 					d.parentNode.insertBefore(el, d.nextSibling);
@@ -1951,7 +1948,6 @@ Game.registerMod("nvda accessibility", {
 				infoEl = document.createElement('div');
 				infoEl.id = infoId;
 				infoEl.setAttribute('tabindex', '0');
-				infoEl.setAttribute('role', 'note');
 				if (icon.nextSibling) {
 					icon.parentNode.insertBefore(infoEl, icon.nextSibling);
 				} else {
@@ -1959,7 +1955,8 @@ Game.registerMod("nvda accessibility", {
 				}
 			}
 			infoEl.textContent = desc;
-			infoEl.setAttribute('aria-label', desc);
+			infoEl.removeAttribute('aria-label');
+			infoEl.removeAttribute('role');
 		} else if (infoEl) {
 			infoEl.remove();
 		}
@@ -1996,7 +1993,6 @@ Game.registerMod("nvda accessibility", {
 				infoEl = document.createElement('div');
 				infoEl.id = infoId;
 				infoEl.setAttribute('tabindex', '0');
-				infoEl.setAttribute('role', 'note');
 				if (icon.nextSibling) {
 					icon.parentNode.insertBefore(infoEl, icon.nextSibling);
 				} else {
@@ -2004,7 +2000,8 @@ Game.registerMod("nvda accessibility", {
 				}
 			}
 			infoEl.textContent = desc;
-			infoEl.setAttribute('aria-label', desc);
+			infoEl.removeAttribute('aria-label');
+			infoEl.removeAttribute('role');
 		} else if (infoEl) {
 			infoEl.remove();
 		}
@@ -4542,8 +4539,9 @@ Game.registerMod("nvda accessibility", {
 			var firstBuilding = l('product0');
 			if (firstBuilding) {
 				products.insertBefore(buildingsRegion, firstBuilding);
-				// Move all product elements into the wrapper
-				var productElements = products.querySelectorAll('[id^="product"]');
+				// Move all product elements into the wrapper (use .product class to
+				// avoid matching child elements like productName, productPrice, etc.)
+				var productElements = products.querySelectorAll('.product');
 				productElements.forEach(function(el) {
 					buildingsRegion.appendChild(el);
 				});
@@ -4763,7 +4761,7 @@ Game.registerMod("nvda accessibility", {
 				existingText.textContent = infoText;
 				existingText.removeAttribute('aria-label');
 				existingText.removeAttribute('role');
-				existingText.removeAttribute('tabindex');
+				if (!existingText.hasAttribute('tabindex')) existingText.setAttribute('tabindex', '0');
 				// Visibility is controlled by filterUnownedBuildings, not here
 			} else {
 				// Create info text element as description source for the building button
@@ -4771,6 +4769,7 @@ Game.registerMod("nvda accessibility", {
 				infoDiv.id = textId;
 				infoDiv.className = 'a11y-building-info';
 				infoDiv.style.cssText = 'display:block;padding:6px;margin:2px 0;font-size:11px;color:#aaa;background:#1a1a1a;border:1px solid #333;';
+				infoDiv.setAttribute('tabindex', '0');
 				infoDiv.textContent = infoText;
 				if (productEl.nextSibling) {
 					productEl.parentNode.insertBefore(infoDiv, productEl.nextSibling);
@@ -4889,7 +4888,8 @@ Game.registerMod("nvda accessibility", {
 		}
 		if (existingText) {
 			existingText.textContent = infoText;
-			existingText.setAttribute('aria-label', infoText);
+			existingText.removeAttribute('aria-label');
+			existingText.removeAttribute('role');
 		} else {
 			// Create info text element (like Grimoire effect text - focusable but not a button)
 			var infoDiv = document.createElement('div');
@@ -4897,8 +4897,6 @@ Game.registerMod("nvda accessibility", {
 			infoDiv.className = 'a11y-upgrade-info';
 			infoDiv.style.cssText = 'display:block;padding:6px;margin:4px 0;font-size:12px;color:#ccc;background:#1a1a1a;border:1px solid #444;';
 			infoDiv.setAttribute('tabindex', '0');
-			infoDiv.setAttribute('role', 'note');
-			infoDiv.setAttribute('aria-label', infoText);
 			infoDiv.textContent = infoText;
 			// Insert after the crate
 			if (crate.nextSibling) {
@@ -4973,13 +4971,12 @@ Game.registerMod("nvda accessibility", {
 		var existing = l(id);
 		if (existing) {
 			this.setTextIfChanged(existing, text);
-			this.setAttributeIfChanged(existing, 'aria-label', text);
+			existing.removeAttribute('aria-label');
+			existing.removeAttribute('role');
 		} else if (afterEl) {
 			var div = document.createElement('div');
 			div.id = id;
 			div.setAttribute('tabindex', '0');
-			div.setAttribute('role', 'note');
-			div.setAttribute('aria-label', text);
 			div.textContent = text;
 			div.style.cssText = 'position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;';
 			if (afterEl.nextSibling) {
@@ -5043,15 +5040,14 @@ Game.registerMod("nvda accessibility", {
 
 		if (existingText) {
 			existingText.textContent = infoText;
-			existingText.setAttribute('aria-label', infoText);
+			existingText.removeAttribute('aria-label');
+			existingText.removeAttribute('role');
 		} else {
 			var infoDiv = document.createElement('div');
 			infoDiv.id = textId;
 			infoDiv.className = 'a11y-seed-info';
 			infoDiv.style.cssText = 'display:block;padding:6px;margin:4px 0;font-size:12px;color:#ccc;background:#1a1a1a;border:1px solid #444;';
 			infoDiv.setAttribute('tabindex', '0');
-			infoDiv.setAttribute('role', 'note');
-			infoDiv.setAttribute('aria-label', infoText);
 			infoDiv.textContent = infoText;
 			if (seedEl.nextSibling) {
 				seedEl.parentNode.insertBefore(infoDiv, seedEl.nextSibling);
@@ -5600,7 +5596,6 @@ Game.registerMod("nvda accessibility", {
 				infoEl = document.createElement('div');
 				infoEl.id = infoId;
 				infoEl.setAttribute('tabindex', '0');
-				infoEl.setAttribute('role', 'note');
 				if (cr.nextSibling) {
 					cr.parentNode.insertBefore(infoEl, cr.nextSibling);
 				} else {
@@ -5608,7 +5603,8 @@ Game.registerMod("nvda accessibility", {
 				}
 			}
 			MOD.setTextIfChanged(infoEl, desc);
-			MOD.setAttributeIfChanged(infoEl, 'aria-label', desc);
+			infoEl.removeAttribute('aria-label');
+			infoEl.removeAttribute('role');
 		} else if (infoEl) {
 			infoEl.remove();
 		}
