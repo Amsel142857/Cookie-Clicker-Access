@@ -2544,6 +2544,28 @@ Game.registerMod("nvda accessibility", {
 		}
 		MOD.setAttributeIfChanged(el, 'role', 'button');
 		MOD.setAttributeIfChanged(el, 'tabindex', '0');
+		if (!el.dataset.a11yEnhanced) {
+			el.dataset.a11yEnhanced = 'true';
+			(function(building) {
+				el.addEventListener('keydown', function(e) {
+					if (e.key === 'Enter' || e.key === ' ') {
+						var isBuy = Game.buyMode === 1;
+						var bulk = Game.buyBulkShortcut ? Game.buyBulkOld : Game.buyBulk;
+						if (isBuy && bulk > 1) {
+							var bulkPrice = building.getSumPrice ? building.getSumPrice(bulk) : building.price * bulk;
+							if (Game.cookies < bulkPrice) {
+								e.preventDefault();
+								e.stopPropagation();
+								MOD.announce('Cannot afford ' + bulk + ' ' + building.name);
+								return;
+							}
+						}
+						e.preventDefault();
+						el.click();
+					}
+				});
+			})(bld);
+		}
 		// Hide all child elements inside the product button from screen readers
 		// so only our aria-label is announced (prevents duplicate name/price/owned reading).
 		// aria-hidden alone isn't enough — NVDA's arrow/word navigation can still read
