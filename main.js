@@ -162,8 +162,8 @@ Game.registerMod("nvda accessibility", {
 					if (milkPanel && milkPanel.contains(el)) {
 						var milkUpg = Game.Upgrades['Milk selector'];
 						if (milkUpg) milkUpg.buy();
-						var milkBtn = l('a11yMilkSelectorButton');
-						if (milkBtn) milkBtn.focus();
+						var milkCrate = Game.mods['nvda accessibility'].findSelectorCrate('Milk selector');
+						if (milkCrate) milkCrate.focus();
 						Game.mods['nvda accessibility'].announce('Milk selector closed');
 						e.preventDefault();
 						return;
@@ -589,9 +589,6 @@ Game.registerMod("nvda accessibility", {
 		MOD.gardenSnapshotInitialized = false;
 		MOD.stockMarketWrapped = false;
 		MOD.highestOwnedBuildingId = -1;
-		// Hide milk selector crate immediately — don't wait for the 500ms setTimeout
-		var earlyMilkCrate = MOD.findSelectorCrate('Milk selector');
-		if (earlyMilkCrate) { earlyMilkCrate.setAttribute('tabindex', '-1'); earlyMilkCrate.setAttribute('aria-hidden', 'true'); }
 		setTimeout(function() {
 			// Hide floating text particles (Lucky, Frenzy, etc.) — already announced via live regions
 			var particles = l('particles');
@@ -2363,14 +2360,18 @@ Game.registerMod("nvda accessibility", {
 				}
 			}
 		}
-		// Hide "Customize" button on the You building — purely visual customizer with no text descriptions
-		var youBld = Game.Objects['You'];
-		if (youBld && youBld.l) {
-			var customizeBtn = youBld.l.querySelector('.onlyOnCanvas');
-			if (customizeBtn) {
-				customizeBtn.setAttribute('aria-hidden', 'true');
-				customizeBtn.setAttribute('tabindex', '-1');
+		// Remove "Customize" link on the You building row — purely visual customizer with no accessible alternative
+		// The link is in row19 (the building row in the left panel), not in product19 (the store button)
+		var youRow = l('row19');
+		if (youRow) {
+			var customizeBtns = youRow.querySelectorAll('.onlyOnCanvas');
+			for (var ci = 0; ci < customizeBtns.length; ci++) {
+				customizeBtns[ci].remove();
 			}
+		}
+		// Disable the customizer prompt so it can't be triggered by any remaining references
+		if (Game.YouCustomizer && Game.YouCustomizer.prompt) {
+			Game.YouCustomizer.prompt = function() {};
 		}
 		// Hide muted building icon strip — purely visual
 		var buildingsMute = l('buildingsMute');
@@ -3503,11 +3504,11 @@ Game.registerMod("nvda accessibility", {
 		}
 		// Check affordability before planting for specific feedback
 		if (!g.canPlant(seed)) {
-			var cost = g.getCost(seed);
-			var cps = Game.cookiesPs;
-			if (Game.cpsSucked) cps = cps * (1 - Game.cpsSucked);
-			if (cps > 0) {
-				MOD.gardenAnnounce('Can afford in ' + MOD.getTimeUntilAfford(cost));
+			var timeStr = MOD.getTimeUntilAfford(g.getCost(seed));
+			if (timeStr) {
+				MOD.gardenAnnounce('Can afford in ' + timeStr);
+			} else {
+				MOD.gardenAnnounce('Cannot afford');
 			}
 			return;
 		}
@@ -4635,13 +4636,8 @@ Game.registerMod("nvda accessibility", {
 			var oldHeading = l('a11yStoreHeading');
 			if (oldHeading) oldHeading.remove();
 		}
-		// Hide the milk selector crate — we have a dedicated button in sectionLeft.
-		// Must run here because RebuildUpgrades recreates the crate DOM.
-		var milkCrate = MOD.findSelectorCrate('Milk selector');
-		if (milkCrate) {
-			MOD.setAttributeIfChanged(milkCrate, 'tabindex', '-1');
-			milkCrate.setAttribute('aria-hidden', 'true');
-		}
+		// Update milk selector crate label (RebuildUpgrades recreates the crate DOM)
+		MOD.updateMilkLabel();
 		// Vault upgrades
 		var vc = l('vaultUpgrades');
 		if (vc) {
@@ -4696,6 +4692,7 @@ Game.registerMod("nvda accessibility", {
 	},
 	getTimeUntilAfford: function(price) {
 		try {
+			if (!Game.Has('Genius accounting')) return '';
 			var cookies = Game.cookies;
 			if (cookies >= price) return 'Affordable now';
 			var deficit = price - cookies;
@@ -4738,11 +4735,8 @@ Game.registerMod("nvda accessibility", {
 					price = building.getSumPrice ? building.getSumPrice(bulkAmount) : building.price * bulkAmount;
 				}
 				if (Game.cookies < price) {
-					var cps = Game.cookiesPs;
-					if (Game.cpsSucked) cps = cps * (1 - Game.cpsSucked);
-					if (cps > 0) {
-						lines.push('Can afford in ' + MOD.getTimeUntilAfford(price));
-					}
+					var timeStr = MOD.getTimeUntilAfford(price);
+					if (timeStr) lines.push('Can afford in ' + timeStr);
 				}
 			}
 			// In sell mode, don't show time until affordable
@@ -4805,9 +4799,11 @@ Game.registerMod("nvda accessibility", {
 		var MOD = this;
 		try {
 			var price = Math.round(upgrade.getPrice());
-			return 'Time until affordable: ' + MOD.getTimeUntilAfford(price);
+			var timeStr = MOD.getTimeUntilAfford(price);
+			if (timeStr) return 'Time until affordable: ' + timeStr;
+			return '';
 		} catch(e) {
-			return 'Time unknown';
+			return '';
 		}
 	},
 	ensureUpgradeInfoButton: function(upgrade, crate) {
@@ -4868,14 +4864,16 @@ Game.registerMod("nvda accessibility", {
 				break;
 			}
 		}
+		// Selector upgrades have their own label functions — re-apply after the generic label
+		var selectorName = u.name || '';
+		if (selectorName === 'Milk selector') MOD.updateMilkLabel();
+		else if (selectorName === 'Background selector') MOD.updateBackgroundLabel();
+		else if (selectorName === 'Golden cookie sound selector') MOD.updateSoundLabel();
 		// Clear ariaReader label so game's crateTooltip text can't stick
 		var a = l('ariaReader-upgrade-' + u.id);
 		if (a) a.innerHTML = '';
 		// Also add a visible/focusable text element below the upgrade
-		// Skip milk selector — it's hidden and has a dedicated panel
-		if ((u.name || '') !== 'Milk selector') {
-			MOD.ensureUpgradeInfoText(u);
-		}
+		MOD.ensureUpgradeInfoText(u);
 	},
 	ensureUpgradeInfoText: function(u) {
 		var MOD = this;
@@ -4900,10 +4898,9 @@ Game.registerMod("nvda accessibility", {
 		if (u.canBuy()) {
 			infoText = desc;
 		} else {
-			var cps = Game.cookiesPs;
-			if (Game.cpsSucked) cps = cps * (1 - Game.cpsSucked);
-			if (cps > 0) {
-				infoText = 'Can afford in ' + MOD.getTimeUntilAfford(u.getPrice()) + '. ' + desc;
+			var timeStr = MOD.getTimeUntilAfford(u.getPrice());
+			if (timeStr) {
+				infoText = 'Can afford in ' + timeStr + '. ' + desc;
 			} else {
 				infoText = desc;
 			}
@@ -5026,7 +5023,8 @@ Game.registerMod("nvda accessibility", {
 			if (plant.plantable !== false && !Game.Has('Turbo-charged soil')) {
 				var cost = g.getCost(plant);
 				if (!g.canPlant(plant)) {
-					lines.push('Affordable in ' + MOD.getTimeUntilAfford(cost) + '.');
+					var timeStr = MOD.getTimeUntilAfford(cost);
+					if (timeStr) lines.push('Affordable in ' + timeStr + '.');
 				}
 			}
 
@@ -5967,24 +5965,8 @@ Game.registerMod("nvda accessibility", {
 	},
 	enhanceQoLSelectors: function() {
 		var MOD = this;
-		// Milk selector button in sectionLeft (below milk display)
-		var milkUpg = Game.Upgrades['Milk selector'];
-		var milkUnlocked = milkUpg && milkUpg.unlocked;
-		var milkBtn = l('a11yMilkSelectorButton');
-		if (milkBtn) {
-			if (milkUnlocked) {
-				milkBtn.style.display = '';
-				MOD.updateMilkLabel();
-			} else {
-				milkBtn.style.display = 'none';
-			}
-		}
-		// Hide the store crate since we have a dedicated button below the milk display
-		var milkCrate = MOD.findSelectorCrate('Milk selector');
-		if (milkCrate) {
-			MOD.setAttributeIfChanged(milkCrate, 'tabindex', '-1');
-			milkCrate.setAttribute('aria-hidden', 'true');
-		}
+		// Update milk selector crate label in the store
+		MOD.updateMilkLabel();
 		// Season selector - check if any season switcher upgrade is owned
 		var seasonUnlocked = Game.Has('Season switcher');
 		var seasonBox = l('seasonBox');
@@ -6026,19 +6008,18 @@ Game.registerMod("nvda accessibility", {
 		});
 	},
 	updateMilkLabel: function() {
+		var MOD = this;
 		var milkUpg = Game.Upgrades['Milk selector'];
 		if (!milkUpg || !milkUpg.unlocked) return;
-		var milkName = 'Automatic';
-		if (Game.milkType !== undefined && Game.milkType > 0 && Game.AllMilks && Game.AllMilks[Game.milkType]) {
-			milkName = Game.AllMilks[Game.milkType].name || 'Milk ' + Game.milkType;
-		} else if (Game.milkType === 0) {
-			milkName = 'Automatic (based on achievements)';
-		}
-		// Update the main button in sectionLeft
-		var milkBtn = l('a11yMilkSelectorButton');
-		if (milkBtn) {
-			this.setTextIfChanged(milkBtn, 'Milk selector: ' + milkName);
-			milkBtn.removeAttribute('aria-label');
+		var milkCrate = MOD.findSelectorCrate('Milk selector');
+		if (milkCrate) {
+			var milkName = 'Automatic';
+			if (Game.milkType !== undefined && Game.milkType > 0 && Game.AllMilks && Game.AllMilks[Game.milkType]) {
+				milkName = Game.AllMilks[Game.milkType].name || 'Milk ' + Game.milkType;
+			} else if (Game.milkType === 0) {
+				milkName = 'Automatic (based on achievements)';
+			}
+			milkCrate.setAttribute('aria-label', 'Milk selector. Current: ' + milkName + '. Click to open selector.');
 		}
 	},
 	setupMilkSelectorOverride: function() {
@@ -6108,8 +6089,22 @@ Game.registerMod("nvda accessibility", {
 			panel.remove();
 			Game.choiceSelectorOn = -1;
 			PlaySound('snd/tickOff.mp3');
+			var milkCrate = MOD.findSelectorCrate('Milk selector');
+			if (milkCrate) milkCrate.focus();
 		});
 		panel.appendChild(closeBtn);
+		// Escape key to close
+		panel.addEventListener('keydown', function(e) {
+			if (e.key === 'Escape') {
+				e.preventDefault();
+				e.stopPropagation();
+				panel.remove();
+				Game.choiceSelectorOn = -1;
+				PlaySound('snd/tickOff.mp3');
+				var milkCrate = MOD.findSelectorCrate('Milk selector');
+				if (milkCrate) milkCrate.focus();
+			}
+		});
 		// Milk choice buttons
 		for (var i = 0; i < choices.length; i++) {
 			if (!choices[i]) continue;
@@ -6148,19 +6143,13 @@ Game.registerMod("nvda accessibility", {
 			})(id, choice.name);
 			panel.appendChild(btn);
 		}
-		// Insert after the milk selector button in sectionLeft
-		var milkBtn = l('a11yMilkSelectorButton');
-		if (milkBtn) {
-			milkBtn.parentNode.insertBefore(panel, milkBtn.nextSibling);
-		} else {
-			// Fallback: insert into sectionLeft before sectionLeftExtra
-			var sectionLeft = l('sectionLeft');
-			var sectionLeftExtra = l('sectionLeftExtra');
-			if (sectionLeft && sectionLeftExtra) {
-				sectionLeft.insertBefore(panel, sectionLeftExtra);
-			} else if (sectionLeft) {
-				sectionLeft.appendChild(panel);
-			}
+		// Insert into sectionLeft near other selector panels
+		var sectionLeft = l('sectionLeft');
+		var sectionLeftExtra = l('sectionLeftExtra');
+		if (sectionLeft && sectionLeftExtra) {
+			sectionLeft.insertBefore(panel, sectionLeftExtra);
+		} else if (sectionLeft) {
+			sectionLeft.appendChild(panel);
 		}
 		heading.focus();
 	},
@@ -6541,7 +6530,7 @@ Game.registerMod("nvda accessibility", {
 		// Collapsible heading — starts collapsed
 		var heading = document.createElement('h2');
 		heading.id = 'a11yGameStatsHeading';
-		heading.textContent = 'Game Stats';
+		heading.textContent = 'Game Stats (' + (Game.AchievementsOwned || 0) + ' achievements)';
 		heading.setAttribute('role', 'button');
 		heading.setAttribute('tabindex', '0');
 		heading.setAttribute('aria-expanded', 'false');
@@ -6607,6 +6596,11 @@ Game.registerMod("nvda accessibility", {
 	},
 	updateGameStatsPanel: function() {
 		var MOD = this;
+		// Update achievement count in heading
+		var heading = l('a11yGameStatsHeading');
+		if (heading) {
+			MOD.setTextIfChanged(heading, 'Game Stats (' + (Game.AchievementsOwned || 0) + ' achievements)');
+		}
 		var cpsEl = l('a11yStatCps');
 		var cpcEl = l('a11yStatCpc');
 		var bankEl = l('a11yStatBank');
@@ -6649,16 +6643,12 @@ Game.registerMod("nvda accessibility", {
 			} else {
 				prestigeText += 'Prestige level: 0';
 			}
-			// Compute ascend-now gains and cookies to next level (same math as game-main.js:16536-16569)
+			// Cookies needed for next prestige level (ascend gains already shown on Legacy button)
 			var chipsOwned = Game.HowMuchPrestige(Game.cookiesReset);
 			var ascendNowToOwn = Math.floor(Game.HowMuchPrestige(Game.cookiesReset + Game.cookiesEarned));
-			var ascendNowToGet = ascendNowToOwn - Math.floor(chipsOwned);
-			if (ascendNowToGet > 0) {
-				prestigeText += ', ascending now would gain ' + Beautify(ascendNowToGet) + ' prestige levels';
-			}
 			var cookiesToNext = Game.HowManyCookiesReset(ascendNowToOwn + 1) - (Game.cookiesEarned + Game.cookiesReset);
 			if (cookiesToNext >= 0) {
-				prestigeText += ', ' + Beautify(cookiesToNext) + ' cookies to next level';
+				prestigeText += ', ' + Beautify(cookiesToNext) + ' cookies to next prestige level';
 			}
 			MOD.setTextIfChanged(prestigeEl, prestigeText);
 		}
@@ -6873,8 +6863,10 @@ Game.registerMod("nvda accessibility", {
 					productEl.style.display = '';
 					productEl.removeAttribute('aria-hidden');
 					var cost = Beautify(bld.price);
+					var mysteryLabel = 'Mystery building. Cost: ' + cost + ' cookies';
 					var timeUntil = MOD.getTimeUntilAfford(bld.price);
-					MOD.setAttributeIfChanged(productEl, 'aria-label', 'Mystery building. Cost: ' + cost + ' cookies. Time until affordable: ' + timeUntil);
+					if (timeUntil) mysteryLabel += '. Time until affordable: ' + timeUntil;
+					MOD.setAttributeIfChanged(productEl, 'aria-label', mysteryLabel);
 					if (infoBtn) {
 						infoBtn.style.display = 'none';
 						MOD.setAttributeIfChanged(infoBtn, 'aria-hidden', 'true');
@@ -7042,28 +7034,9 @@ Game.registerMod("nvda accessibility", {
 		milkDiv.textContent = 'Milk: Loading...';
 		milkDiv.style.cssText = 'background:#1a1a1a;color:#fff;padding:8px;margin:5px;text-align:center;border:1px solid #444;font-size:12px;position:relative;z-index:50;';
 		sectionLeft.insertBefore(milkDiv, insertPoint);
-		// Create Milk selector button
+		// Clean up old milk selector button from prior versions
 		var oldMilkBtn = l('a11yMilkSelectorButton');
 		if (oldMilkBtn) oldMilkBtn.remove();
-		var milkBtn = document.createElement('button');
-		milkBtn.type = 'button';
-		milkBtn.id = 'a11yMilkSelectorButton';
-		milkBtn.setAttribute('tabindex', '0');
-		milkBtn.style.cssText = 'display:none;width:calc(100% - 10px);padding:8px;margin:5px;background:#336;border:1px solid #66a;color:#fff;cursor:pointer;font-size:12px;text-align:center;position:relative;z-index:50;';
-		milkBtn.addEventListener('click', function() {
-			var milkUpg = Game.Upgrades['Milk selector'];
-			if (milkUpg) milkUpg.buy();
-		});
-		sectionLeft.insertBefore(milkBtn, insertPoint);
-		// Set initial label and visibility
-		var milkSelectorUpg = Game.Upgrades['Milk selector'];
-		if (milkSelectorUpg && milkSelectorUpg.unlocked) {
-			milkBtn.style.display = '';
-			MOD.updateMilkLabel();
-		} else {
-			milkBtn.textContent = 'Milk selector';
-			milkBtn.setAttribute('aria-label', 'Milk selector');
-		}
 		// Label mystery elements in the left column
 		MOD.labelMysteryElements();
 	},
@@ -7139,6 +7112,8 @@ Game.registerMod("nvda accessibility", {
 		menuButtons.forEach(function(btn) {
 			MOD.setAttributeIfChanged(btn, 'tabindex', '0');
 		});
+		// Update Milk display
+		MOD.updateMilkDisplay();
 		// Find any unlabeled number displays
 		MOD.findAndLabelUnknownDisplays();
 	},
@@ -7377,8 +7352,6 @@ Game.registerMod("nvda accessibility", {
 		}
 		// Update any mystery number labels
 		MOD.findAndLabelUnknownDisplays();
-		// Update Milk display
-		MOD.updateMilkDisplay();
 	},
 
 	// ============================================
