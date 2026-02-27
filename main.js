@@ -5307,7 +5307,7 @@ Game.registerMod("nvda accessibility", {
 	enhanceAscensionUI: function() {
 		var MOD = this;
 		var ao = l('ascendOverlay');
-		if (ao) { MOD.setAttributeIfChanged(ao, 'role', 'region'); ao.setAttribute('aria-label', 'Ascension'); }
+		if (ao) { ao.removeAttribute('role'); ao.removeAttribute('aria-label'); }
 		var ab = l('ascendButton');
 		if (ab) {
 			MOD.setAttributeIfChanged(ab, 'role', 'button'); MOD.setAttributeIfChanged(ab, 'tabindex', '0');
@@ -5317,17 +5317,29 @@ Game.registerMod("nvda accessibility", {
 				ab.addEventListener('keydown', function(e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); ab.click(); } });
 			}
 		}
-		// Make prestige and heavenly chips data accessible
+		// Promote prestige level heading from h3 to h2
 		var d1 = l('ascendData1');
+		var prestigeH3 = d1 ? d1.querySelector('h3') : null;
+		if (prestigeH3 && prestigeH3.tagName === 'H3') {
+			var h2 = document.createElement('h2');
+			h2.id = prestigeH3.id;
+			h2.innerHTML = prestigeH3.innerHTML;
+			prestigeH3.parentNode.replaceChild(h2, prestigeH3);
+		}
 		if (d1) {
 			d1.removeAttribute('aria-hidden');
-			MOD.setAttributeIfChanged(d1, 'tabindex', '0');
+			d1.removeAttribute('tabindex');
 			d1.setAttribute('aria-label', 'Prestige level: ' + Beautify(Game.prestige));
 		}
+		// Remove heading role from heavenly chips h3
 		var d2 = l('ascendData2');
+		var chipsH3 = d2 ? d2.querySelector('h3') : null;
+		if (chipsH3) {
+			chipsH3.setAttribute('role', 'presentation');
+		}
 		if (d2) {
 			d2.removeAttribute('aria-hidden');
-			MOD.setAttributeIfChanged(d2, 'tabindex', '0');
+			d2.removeAttribute('tabindex');
 			d2.setAttribute('aria-label', 'Heavenly chips available: ' + Beautify(Game.heavenlyChips));
 		}
 		// Label the challenge mode selector button
@@ -6620,7 +6632,7 @@ Game.registerMod("nvda accessibility", {
 			if (heralds > 0 && Game.Has('Heralds') && Game.ascensionMode !== 1) {
 				heraldText = 'Heralds: ' + heralds + ', +' + heralds + '% cookies per second';
 			} else if (heralds > 0 && !Game.Has('Heralds')) {
-				heraldText = 'Heralds: ' + heralds + ', purchase the Heralds upgrade to benefit';
+				heraldText = 'Heralds: ' + heralds + ', not active';
 			} else if (heralds > 0 && Game.ascensionMode === 1) {
 				heraldText = 'Heralds: ' + heralds + ', not active during Born Again';
 			} else {
