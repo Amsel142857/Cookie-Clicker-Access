@@ -7199,10 +7199,8 @@ Game.registerMod("nvda accessibility", {
 					minigameName = bld.minigame.name;
 					minigameUnlocked = true;
 				}
-				// Label the main row
-				var rowLabel = bld.name + ' building row. Level ' + level + '.';
-				if (minigameUnlocked && minigameName) rowLabel += ' Has ' + minigameName + ' minigame.';
-				MOD.setAttributeIfChanged(rowEl, 'aria-label', rowLabel);
+				// Don't set aria-label on the row — it masks the buttons inside
+				rowEl.removeAttribute('aria-label');
 				// Find and label clickable elements within the row
 				rowEl.querySelectorAll('div[onclick], .rowSpecial, .rowCanvas').forEach(function(el) {
 					var onclick = el.getAttribute('onclick') || '';
