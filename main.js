@@ -2813,14 +2813,9 @@ Game.registerMod("nvda accessibility", {
 			// Clamp to active bounds
 			if (nx < bounds.minX || nx >= bounds.maxX || ny < bounds.minY || ny >= bounds.maxY) return;
 
-			// Move roving tabindex
-			var oldBtn = l('a11yGridBtn-' + cx + '-' + cy);
+			// Focus target cell (tabindex stays on top-left so Tab always enters there)
 			var newBtn = l('a11yGridBtn-' + nx + '-' + ny);
-			if (oldBtn) oldBtn.setAttribute('tabindex', '-1');
-			if (newBtn) {
-				newBtn.setAttribute('tabindex', '0');
-				newBtn.focus();
-			}
+			if (newBtn) newBtn.focus();
 			MOD.gardenGridCurrentX = nx;
 			MOD.gardenGridCurrentY = ny;
 		});
