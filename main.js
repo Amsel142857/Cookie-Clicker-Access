@@ -532,6 +532,26 @@ Game.registerMod("nvda accessibility", {
 				}
 			}, 0);
 		};
+		// Wrap Game.storeBuyAll to announce which upgrades were purchased
+		var origStoreBuyAll = Game.storeBuyAll;
+		Game.storeBuyAll = function() {
+			var before = {};
+			for (var i in Game.UpgradesInStore) {
+				var u = Game.UpgradesInStore[i];
+				if (u && !u.bought) before[u.id] = u.dname || u.name;
+			}
+			origStoreBuyAll.apply(this, arguments);
+			var bought = [];
+			for (var id in before) {
+				var u = Game.UpgradesById[id];
+				if (u && u.bought) bought.push(before[id]);
+			}
+			if (bought.length > 0) {
+				MOD.announce('Bought ' + bought.length + ' upgrade' + (bought.length !== 1 ? 's' : '') + ': ' + bought.join(', '));
+			} else {
+				MOD.announce('No upgrades could be afforded');
+			}
+		};
 		// Wrap Game.ToggleSpecialMenu to create/remove accessible panels
 		var origToggleSpecialMenu = Game.ToggleSpecialMenu;
 		Game.ToggleSpecialMenu = function(on) {
@@ -4662,7 +4682,7 @@ Game.registerMod("nvda accessibility", {
 		if (buyAllBtn && !buyAllBtn.dataset.a11yEnhanced) {
 			buyAllBtn.setAttribute('role', 'button');
 			buyAllBtn.setAttribute('tabindex', '0');
-			buyAllBtn.setAttribute('aria-label', 'Buy all affordable upgrades. Shift click to vault instead.');
+			buyAllBtn.setAttribute('aria-label', 'Buy all available upgrades');
 			buyAllBtn.addEventListener('keydown', function(e) {
 				if (e.key === 'Enter' || e.key === ' ') {
 					e.preventDefault();
