@@ -19,7 +19,7 @@ After editing `main.js`, always copy `main.js` and all relevant files in the `mo
 ./build-userscript.sh
 ```
 
-This concatenates `userscript-header.txt` + `modules/*.js` + `main.js` into `cookie-clicker-accessibility.user.js` wrapped in an IIFE with a Game-ready polling loop.
+This concatenates `userscript-header.txt` + `main.js` into `cookie-clicker-accessibility.user.js` wrapped in an IIFE with a Game-ready polling loop.
 
 This step should only be executed when explicitly requested or when packaging for a Github release. There is no need to build the userscript for testing on the local machine as all testing is done in the Steam build of the game.
 
@@ -29,7 +29,7 @@ When creating Github releases, make sure that:
 - All relevant version numbers are bumped
 - The changelog is updated with relevant information
 - Two assets are created and uploaded to Github:
-	1. A zip with *only* the relevant files for the steam mod (main and modules) and
+	1. A zip named `Cookie-Clicker-Access.zip` containing a `Cookie-Clicker-Access/` folder with `main.js` and `info.txt` (no loose files at the zip root)
 	2. A built userscript (refer to above section for details)
 
 ## Deploying to Steam for Testing
