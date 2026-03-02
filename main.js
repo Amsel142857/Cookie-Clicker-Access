@@ -4785,7 +4785,13 @@ Game.registerMod("nvda accessibility", {
 		// Store section - H2 heading added in enhanceUpgradeShop
 		// Upgrades section
 		var up = l('upgrades');
-		if (up) { up.setAttribute('role', 'region'); up.setAttribute('aria-label', 'Available Upgrades'); }
+		if (up && !l('a11yUpgradesHeading')) {
+			var upgradesHeading = document.createElement('h3');
+			upgradesHeading.id = 'a11yUpgradesHeading';
+			upgradesHeading.textContent = 'Available Upgrades';
+			upgradesHeading.style.cssText = 'position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;';
+			up.insertBefore(upgradesHeading, up.firstChild);
+		}
 		// Buildings section - heading added in addStructuralHeadings
 		// Create a wrapper region around just the building elements (not buy/sell buttons)
 		var products = l('products');
