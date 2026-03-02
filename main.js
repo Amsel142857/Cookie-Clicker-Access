@@ -136,18 +136,6 @@ Game.registerMod("nvda accessibility", {
 				}
 				var el = document.activeElement;
 				if (!el) return;
-				// If focus is inside the garden grid, move focus out so NVDA
-				// exits focus mode instead of closing the garden
-				var gridPanel = l('a11yGardenGridPanel');
-				if (gridPanel && gridPanel.contains(el)) {
-					var plotHeading = l('a11yGardenPlotHeading');
-					if (plotHeading) {
-						plotHeading.setAttribute('tabindex', '-1');
-						plotHeading.focus();
-					}
-					e.preventDefault();
-					return;
-				}
 				// Check minigame panels
 				var row = el.closest('.onMinigame');
 				if (row) {
@@ -2722,6 +2710,8 @@ Game.registerMod("nvda accessibility", {
 		// Create panel
 		var panel = document.createElement('div');
 		panel.id = 'a11yGardenGridPanel';
+		panel.setAttribute('role', 'region');
+		panel.setAttribute('aria-label', 'Garden grid');
 		panel.dataset.rows = String(numRows);
 		panel.dataset.cols = String(numCols);
 		panel.style.cssText = 'background:#1a2e1a;border:2px solid #6c6;padding:10px;margin:10px 0;';
@@ -2780,7 +2770,7 @@ Game.registerMod("nvda accessibility", {
 		}
 
 		// Set first cell focusable
-		var firstBtn = l('a11yGridBtn-' + minX + '-' + minY);
+		var firstBtn = MOD.gardenGridButtons[minX + ',' + minY];
 		if (firstBtn) firstBtn.setAttribute('tabindex', '0');
 
 		// Arrow key navigation on the grid
@@ -3241,22 +3231,29 @@ Game.registerMod("nvda accessibility", {
 			}
 		}
 
-		// Add section headings to original game elements (only once)
-		var headingsToAdd = [
-			{ id: 'a11yGardenToolsHeading', text: 'Tools', beforeId: 'gardenTools' },
-			{ id: 'a11yGardenSoilHeading', text: 'Soil' + (Game.Has('Turbo-charged soil') ? '' : ', can switch every 10 minutes'), beforeId: 'gardenSoil-0' },
-		];
-		for (var i = 0; i < headingsToAdd.length; i++) {
-			var h = headingsToAdd[i];
-			if (!l(h.id)) {
-				var heading = document.createElement('h3');
-				heading.id = h.id;
-				heading.textContent = h.text;
-				heading.style.cssText = 'color:#6c6;margin:8px 0 4px 0;font-size:14px;';
-				var target = l(h.beforeId);
-				if (target && target.parentNode) {
-					target.parentNode.insertBefore(heading, target);
-				}
+		// Make the game's existing "Tools" label act as a heading
+		var gardenToolsEl = l('gardenTools');
+		if (gardenToolsEl) {
+			var toolsLabel = gardenToolsEl.previousElementSibling;
+			while (toolsLabel && !toolsLabel.classList.contains('gardenPanelLabel')) {
+				toolsLabel = toolsLabel.previousElementSibling;
+			}
+			if (toolsLabel && toolsLabel.getAttribute('role') !== 'heading') {
+				toolsLabel.setAttribute('role', 'heading');
+				toolsLabel.setAttribute('aria-level', '3');
+			}
+		}
+		// Add soil heading
+		var soilHeadingId = 'a11yGardenSoilHeading';
+		if (!l(soilHeadingId)) {
+			var soilText = 'Soil' + (Game.Has('Turbo-charged soil') ? '' : ', can switch every 10 minutes');
+			var soilHeading = document.createElement('h3');
+			soilHeading.id = soilHeadingId;
+			soilHeading.textContent = soilText;
+			soilHeading.style.cssText = 'color:#6c6;margin:8px 0 4px 0;font-size:14px;';
+			var soilTarget = l('gardenSoil-0');
+			if (soilTarget && soilTarget.parentNode) {
+				soilTarget.parentNode.insertBefore(soilHeading, soilTarget);
 			}
 		}
 		// Seeds heading with discovery count (updated dynamically)
@@ -3283,13 +3280,12 @@ Game.registerMod("nvda accessibility", {
 		if (plotSizeEl) {
 			plotSizeEl.setAttribute('aria-hidden', 'true');
 		}
-		var plotLevel = Math.max(1, Math.min(g.plotLimits.length, g.parent.level));
-		var plotTotal = g.plotLimits.length;
+		var plotLevel = Math.max(1, Math.min(g.plotLimits.length, g.parent.level)) - 1;
+		var limits = g.plotLimits[plotLevel];
+		var plotRows = limits[3] - limits[1];
+		var plotCols = limits[2] - limits[0];
 		var plotHeading = l('a11yGardenPlotHeading');
-		var plotText = 'Plots, ' + plotLevel + '/' + plotTotal + ' (upgrades with farm level)';
-		if (plotLevel >= plotTotal) {
-			plotText = 'Plots, max size';
-		}
+		var plotText = 'Plots, ' + plotRows + ' rows by ' + plotCols + ' columns';
 		if (!plotHeading) {
 			plotHeading = document.createElement('h3');
 			plotHeading.id = 'a11yGardenPlotHeading';
