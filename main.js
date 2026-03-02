@@ -2107,7 +2107,7 @@ Game.registerMod("nvda accessibility", {
 				// Non-buff effects: announce the effect text from the game's popup
 				// Buff effects: handled by updateBuffTracker, no announcement needed here
 				var nonBuffEffects = ['multiply cookies', 'ruin cookies', 'blab',
-				                      'free sugar lump'];
+				                      'free sugar lump', 'cookie storm drop'];
 				if (capturedPopup && nonBuffEffects.indexOf(lastEffect) !== -1) {
 					MOD.announceUrgent(MOD.stripHtml(capturedPopup));
 				}
@@ -2295,6 +2295,10 @@ Game.registerMod("nvda accessibility", {
 				var remaining = Math.ceil(cur[n].time / Game.fps);
 				var added = Math.ceil((cur[n].time - MOD.lastBuffs[n].time) / Game.fps);
 				MOD.announceUrgent(n + ' extended by ' + added + ' seconds, ' + remaining + 's remaining.');
+			} else if (cur[n].maxTime !== MOD.lastBuffs[n].maxTime) {
+				// Buff was replaced with shorter duration (e.g. FTHOF gave same buff already active)
+				var duration = Math.ceil(cur[n].maxTime / Game.fps);
+				MOD.announceUrgent(n + ' refreshed for ' + duration + ' seconds!');
 			}
 		}
 		// Announce ended buffs
