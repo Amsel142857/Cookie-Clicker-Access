@@ -9,6 +9,7 @@
 - Grid size shown in the Plots heading (e.g. "Plots (6 by 6)")
 
 ### Other Changes
+- Added "Available Upgrades" heading above the upgrade store section
 - Purchased upgrades are now announced when using Buy All Upgrades button
 - Dragon upgrade now announces what was trained (e.g. "Trained Breath of Milk")
 - Focus restored to aura slot after confirming dragon aura selection
