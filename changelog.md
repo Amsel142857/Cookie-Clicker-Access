@@ -5,7 +5,7 @@
 ### Garden Grid Navigation
 - Replaced tab-based garden navigation with a proper arrow key grid
 - Grid uses `role="grid"` with rows and cells, navigable with arrow keys in NVDA focus mode
-- Tab enters the grid at the top-left plot, Escape leaves the grid
+- Tab enters the grid at the top-left plot
 - Grid size shown in the Plots heading (e.g. "Plots (6 by 6)")
 
 ### Other Changes
