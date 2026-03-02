@@ -93,14 +93,14 @@ Minigames unlock at building level 1 (costs 1 sugar lump). Each building with a 
 
 ### Garden (Farm - Level 1)
 
-The Garden lets you grow plants in a 6x6 grid.
+The Garden lets you grow plants in a grid (up to 6x6 depending on farm level).
 
 **Grid Navigation:**
 1. Open the Farm minigame
-2. Below the Plots heading (which shows the grid size), tiles are directly accessible
-3. Use Arrow keys to navigate between tiles. Each tile announces its coordinates (R#, C#), any plant name, growth percentage, and whether it is ready to harvest.
+2. Tab to the garden grid below the Plots heading
+3. Use Arrow keys to navigate between tiles (works in NVDA focus mode). Each tile announces its coordinates (R#, C#), any plant name, growth percentage, and whether it is ready to harvest.
 4. Press Enter or Space on an empty tile to plant your selected seed, or on a mature plant to harvest it
-5. Press Escape to exit grid navigation
+5. Switch back to NVDA browse mode (Escape or NVDA+Space) to leave the grid and return to normal navigation
 
 **Seeds:** Tab to the Seeds section to browse unlocked seeds. Click a seed to select it. A "Selected [name]" announcement confirms your choice.
 

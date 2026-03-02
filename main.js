@@ -136,58 +136,58 @@ Game.registerMod("nvda accessibility", {
 				}
 				var el = document.activeElement;
 				if (!el) return;
-				// Check minigame panels
-				var row = el.closest('.onMinigame');
-				if (row) {
-					var rowId = row.id; // e.g. "row2"
-					var bldId = parseInt(rowId.replace('row', ''));
+				// Check minigame panels — find any open minigame regardless of focus location
+				for (var bldId in Game.ObjectsById) {
 					var bld = Game.ObjectsById[bldId];
 					if (bld && bld.onMinigame) {
 						var mgName = bld.minigameName || bld.name;
 						bld.switchMinigame(false);
 						Game.mods['nvda accessibility'].announce(mgName + ' closed');
-						var mgBtn = l('productMinigameButton' + bldId);
+						var mgBtn = l('productMinigameButton' + bld.id);
 						if (mgBtn) mgBtn.focus();
 						e.preventDefault();
 						return;
 					}
 				}
-				// Check panels in sectionLeft (dragon, santa, milk selector)
-				// NVDA virtual cursor may not set activeElement inside the panel directly,
-				// so check if focus is anywhere in sectionLeft and close the most specific open panel
-				var inSectionLeft = el.closest && el.closest('#sectionLeft');
-				if (inSectionLeft) {
-					// Check milk selector first (most specific)
-					var milkPanel = l('a11yMilkSelectorPanel');
-					if (milkPanel && milkPanel.contains(el)) {
-						var milkUpg = Game.Upgrades['Milk selector'];
-						if (milkUpg) milkUpg.buy();
-						var milkCrate = Game.mods['nvda accessibility'].findSelectorCrate('Milk selector');
-						if (milkCrate) milkCrate.focus();
-						Game.mods['nvda accessibility'].announce('Milk selector closed');
+				// Check selector panels (milk, background, sound)
+				var selectorPanels = [
+					{id: 'a11yMilkSelectorPanel', upgName: 'Milk selector', label: 'Milk selector closed'},
+					{id: 'a11yBgSelectorPanel', upgName: 'Background selector', label: 'Background selector closed'},
+					{id: 'a11ySoundSelectorPanel', upgName: 'Golden cookie sound selector', label: 'Sound selector closed'}
+				];
+				for (var sp = 0; sp < selectorPanels.length; sp++) {
+					var sPanel = l(selectorPanels[sp].id);
+					if (sPanel) {
+						sPanel.remove();
+						Game.choiceSelectorOn = -1;
+						PlaySound('snd/tickOff.mp3');
+						var sCrate = Game.mods['nvda accessibility'].findSelectorCrate(selectorPanels[sp].upgName);
+						if (sCrate) sCrate.focus();
+						Game.mods['nvda accessibility'].announce(selectorPanels[sp].label);
 						e.preventDefault();
 						return;
 					}
-					// Check dragon panel
-					var dragonPanel = l('a11yDragonPanel');
-					if (dragonPanel) {
-						Game.ToggleSpecialMenu(0);
-						Game.mods['nvda accessibility'].announce('Krumblor the Dragon closed');
-						var dragonBtn = l('a11ySpecialTab_dragon');
-						if (dragonBtn) dragonBtn.focus();
-						e.preventDefault();
-						return;
-					}
-					// Check santa panel
-					var santaPanel = l('a11ySantaPanel');
-					if (santaPanel) {
-						Game.ToggleSpecialMenu(0);
-						Game.mods['nvda accessibility'].announce("Santa's Progress closed");
-						var santaBtn = l('a11ySpecialTab_santa');
-						if (santaBtn) santaBtn.focus();
-						e.preventDefault();
-						return;
-					}
+				}
+				// Check dragon panel (panel only exists when tab is open, so just check existence;
+				// focus may have fallen to body after aura confirm rebuilds the panel)
+				var dragonPanel = l('a11yDragonPanel');
+				if (dragonPanel) {
+					Game.ToggleSpecialMenu(0);
+					Game.mods['nvda accessibility'].announce('Krumblor the Dragon closed');
+					var dragonBtn = l('a11ySpecialTab_dragon');
+					if (dragonBtn) dragonBtn.focus();
+					e.preventDefault();
+					return;
+				}
+				// Check santa panel (same reasoning as dragon)
+				var santaPanel = l('a11ySantaPanel');
+				if (santaPanel) {
+					Game.ToggleSpecialMenu(0);
+					Game.mods['nvda accessibility'].announce("Santa's Progress closed");
+					var santaBtn = l('a11ySpecialTab_santa');
+					if (santaBtn) santaBtn.focus();
+					e.preventDefault();
+					return;
 				}
 			}
 		}, false);
@@ -1427,13 +1427,17 @@ Game.registerMod("nvda accessibility", {
 			upgradeBtn.style.cssText = 'display:block;width:100%;padding:8px;margin:5px 0;background:#336;border:1px solid #66a;color:#fff;cursor:pointer;';
 			upgradeBtn.addEventListener('click', function() {
 				var prevLevel = Game.dragonLevel;
-				var prevName = Game.dragonLevels[prevLevel] ? Game.dragonLevels[prevLevel].name : '';
+				var prevLevelInfo = Game.dragonLevels[prevLevel];
+				var prevName = prevLevelInfo ? prevLevelInfo.name : '';
+				var prevAction = prevLevelInfo ? prevLevelInfo.action.split('<br>')[0].replace(/<[^>]*>/g, '').replace(/^Train /, 'Trained ') : '';
 				Game.UpgradeDragon();
 				if (Game.dragonLevel > prevLevel) {
 					var newLevelInfo = Game.dragonLevels[Game.dragonLevel];
 					var newName = newLevelInfo ? MOD.stripHtml(newLevelInfo.name) : '';
 					if (newName && newName !== prevName) {
 						MOD.announce('Dragon upgraded to ' + newName + '.');
+					} else if (prevAction) {
+						MOD.announce('Dragon upgraded, ' + prevAction + '.');
 					} else {
 						MOD.announce('Dragon upgraded.');
 					}
@@ -1616,6 +1620,9 @@ Game.registerMod("nvda accessibility", {
 			MOD.editingAuraSlot = -1;
 			MOD.selectedAuraForSlot = -1;
 			Game.ToggleSpecialMenu(1);
+			// Restore focus to the aura slot button after panel rebuild
+			var newSlotBtn = l('a11yAuraSlotBtn' + slotNum);
+			if (newSlotBtn) newSlotBtn.focus();
 		});
 		btnRow.appendChild(confirmBtn);
 		var dismissBtn = document.createElement('button');
@@ -2875,7 +2882,8 @@ Game.registerMod("nvda accessibility", {
 	},
 	getGardenGridCellLabel: function(g, x, y) {
 		var t = g.plot[y] && g.plot[y][x];
-		var lbl = 'Row ' + (y + 1) + ', column ' + (x + 1) + ': ';
+		var pos = '. Row ' + (y + 1) + ', column ' + (x + 1);
+		var lbl = '';
 		if (t && t[0] > 0) {
 			var pl = g.plantsById[t[0] - 1];
 			if (pl) {
@@ -2886,7 +2894,7 @@ Game.registerMod("nvda accessibility", {
 				else if (age >= mature * 0.666) stage = 'bloom';
 				else if (age >= mature * 0.333) stage = 'sprout';
 				else stage = 'bud';
-				lbl += pl.name + ', ' + stage;
+				lbl = pl.name + ', ' + stage;
 				// Time estimate
 				var dragonBoost = 1 / (1 + 0.05 * Game.auraMult('Supreme Intellect'));
 				var avgTick = pl.ageTick + pl.ageTickR / 2;
@@ -2901,12 +2909,12 @@ Game.registerMod("nvda accessibility", {
 					lbl += '. Decays in about ' + Game.sayTime(Math.ceil(decayFrames / minuteFrames) * minuteFrames, -1);
 				}
 			} else {
-				lbl += 'Unknown plant';
+				lbl = 'Unknown plant';
 			}
 		} else {
-			lbl += 'Empty';
+			lbl = 'Empty';
 		}
-		return lbl;
+		return lbl + pos;
 	},
 	updateGardenGridPanel: function() {
 		var MOD = this;
@@ -2929,7 +2937,8 @@ Game.registerMod("nvda accessibility", {
 		var tile = l('gardenTile-' + x + '-' + y);
 		if (!tile) return;
 		var t = g.plot[y] && g.plot[y][x];
-		var lbl = 'Row ' + (y+1) + ', column ' + (x+1) + ': ';
+		var pos = '. Row ' + (y+1) + ', column ' + (x+1);
+		var lbl = '';
 		if (t && t[0] > 0) {
 			var pl = g.plantsById[t[0] - 1];
 			if (pl) {
@@ -2947,7 +2956,7 @@ Game.registerMod("nvda accessibility", {
 				} else {
 					stage = 'bud'; effectScale = 10;
 				}
-				lbl += pl.name + ', ' + stage + ' (' + pct + '% grown, effects ' + effectScale + '%)';
+				lbl = pl.name + ', ' + stage + ' (' + pct + '% grown, effects ' + effectScale + '%)';
 				if (age >= mature) {
 					lbl += ', may reproduce, drops seed when harvested';
 				}
@@ -2974,12 +2983,12 @@ Game.registerMod("nvda accessibility", {
 					if (pb[2] != 1) lbl += '. Weed repellent: ' + Beautify(100 - pb[2] * 100) + '%';
 				}
 			} else {
-				lbl += 'Unknown plant';
+				lbl = 'Unknown plant';
 			}
 		} else {
-			lbl += 'Empty';
+			lbl = 'Empty';
 		}
-		tile.setAttribute('aria-label', lbl);
+		tile.setAttribute('aria-label', lbl + pos);
 	},
 	labelOriginalGardenElements: function(g) {
 		var MOD = this;
@@ -3390,21 +3399,22 @@ Game.registerMod("nvda accessibility", {
 		if (g.seedSelected >= 0 && g.plantsById[g.seedSelected]) {
 			selectedSeedName = g.plantsById[g.seedSelected].name;
 		}
-		var label = 'Row ' + (y+1) + ', column ' + (x+1) + ': ';
+		var pos = '. Row ' + (y+1) + ', column ' + (x+1);
+		var label = '';
 		if (info.isEmpty) {
 			if (selectedSeedName) {
-				label += 'Empty. Press Enter to plant ' + selectedSeedName;
+				label = 'Empty. Press Enter to plant ' + selectedSeedName;
 				btn.style.background = '#2a3a2a';
 				btn.style.border = '1px solid #4a4';
 				btn.style.color = '#afa';
 			} else {
-				label += 'Empty. Select a seed first to plant';
+				label = 'Empty. Select a seed first to plant';
 				btn.style.background = '#333';
 				btn.style.border = '1px solid #555';
 				btn.style.color = '#fff';
 			}
 		} else if (info.isMature) {
-			label += info.name + ', mature, READY. Press Enter to harvest';
+			label = info.name + ', mature, READY. Press Enter to harvest';
 			// Time estimate for decay
 			if (info.plant && !info.plant.immortal) {
 				var dragonBoost = 1 / (1 + 0.05 * Game.auraMult('Supreme Intellect'));
@@ -3420,7 +3430,7 @@ Game.registerMod("nvda accessibility", {
 			btn.style.border = '1px solid #aa4';
 			btn.style.color = '#ffa';
 		} else {
-			label += info.name + ', ' + info.stage + ', ' + info.growth + '% grown';
+			label = info.name + ', ' + info.stage + ', ' + info.growth + '% grown';
 			// Time estimate for maturation
 			if (info.plant) {
 				var dragonBoost = 1 / (1 + 0.05 * Game.auraMult('Supreme Intellect'));
@@ -3434,8 +3444,9 @@ Game.registerMod("nvda accessibility", {
 			btn.style.border = '1px solid #55a';
 			btn.style.color = '#aaf';
 		}
-		btn.textContent = label;
-		btn.setAttribute('aria-label', label);
+		var fullLabel = label + pos;
+		btn.textContent = fullLabel;
+		btn.setAttribute('aria-label', fullLabel);
 	},
 	// Update all plot buttons in-place
 	updateAllPlotButtons: function() {
@@ -6256,7 +6267,7 @@ Game.registerMod("nvda accessibility", {
 			} else if (Game.milkType === 0) {
 				milkName = 'Automatic (based on achievements)';
 			}
-			milkCrate.setAttribute('aria-label', 'Milk selector. Current: ' + milkName + '. Click to open selector.');
+			milkCrate.setAttribute('aria-label', 'Milk selector. Current: ' + milkName + '.');
 		}
 	},
 	setupMilkSelectorOverride: function() {
@@ -6403,7 +6414,7 @@ Game.registerMod("nvda accessibility", {
 			} else if (Game.bgType === 0) {
 				bgName = 'Automatic (changes with milk)';
 			}
-			bgCrate.setAttribute('aria-label', 'Background selector. Current: ' + bgName + '. Click to open selector.');
+			bgCrate.setAttribute('aria-label', 'Background selector. Current: ' + bgName + '.');
 		}
 	},
 	setupBackgroundSelectorOverride: function() {
@@ -6470,6 +6481,8 @@ Game.registerMod("nvda accessibility", {
 			panel.remove();
 			Game.choiceSelectorOn = -1;
 			PlaySound('snd/tickOff.mp3');
+			var bgCrate = MOD.findSelectorCrate('Background selector');
+			if (bgCrate) bgCrate.focus();
 		});
 		panel.appendChild(closeBtn);
 		// Escape key to close
@@ -6480,6 +6493,8 @@ Game.registerMod("nvda accessibility", {
 				panel.remove();
 				Game.choiceSelectorOn = -1;
 				PlaySound('snd/tickOff.mp3');
+				var bgCrate = MOD.findSelectorCrate('Background selector');
+				if (bgCrate) bgCrate.focus();
 			}
 		});
 		// Background choice buttons
@@ -6634,7 +6649,7 @@ Game.registerMod("nvda accessibility", {
 					chimeName = choices[Game.chimeType].name || 'Sound ' + Game.chimeType;
 				}
 			}
-			soundCrate.setAttribute('aria-label', 'Golden cookie sound selector. Current: ' + chimeName + '. Click to open selector.');
+			soundCrate.setAttribute('aria-label', 'Golden cookie sound selector. Current: ' + chimeName + '.');
 		}
 	},
 	setupSoundSelectorOverride: function() {
@@ -6687,6 +6702,8 @@ Game.registerMod("nvda accessibility", {
 			panel.remove();
 			Game.choiceSelectorOn = -1;
 			PlaySound('snd/tickOff.mp3');
+			var soundCrate = MOD.findSelectorCrate('Golden cookie sound selector');
+			if (soundCrate) soundCrate.focus();
 		});
 		panel.appendChild(closeBtn);
 		// Escape key to close
@@ -6697,6 +6714,8 @@ Game.registerMod("nvda accessibility", {
 				panel.remove();
 				Game.choiceSelectorOn = -1;
 				PlaySound('snd/tickOff.mp3');
+				var soundCrate = MOD.findSelectorCrate('Golden cookie sound selector');
+				if (soundCrate) soundCrate.focus();
 			}
 		});
 		// Sound choice buttons

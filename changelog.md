@@ -1,5 +1,23 @@
 # Cookie Clicker Access - Changelog
 
+## Version 13.7
+
+### Garden Grid Navigation
+- Replaced tab-based garden navigation with a proper arrow key grid
+- Grid uses `role="grid"` with rows and cells, navigable with arrow keys in NVDA focus mode
+- Tab enters the grid at the top-left plot, Escape leaves the grid
+- Grid size shown in the Plots heading (e.g. "Plots (6 by 6)")
+
+### Other Changes
+- Purchased upgrades are now announced when using Buy All Upgrades button
+- Fixed FTHOF shimmer announcements for buff replacements and storm cookie drops
+- Cleaned up ascension screen labels and heralds display
+- Removed aria-label from building rows to properly expose inner buttons
+- Fixed time-until-affordable showing before Genius Accounting upgrade is owned
+- Blocked building purchase attempts when bulk amount is unaffordable
+- Fixed role="note" spam, duplicate aria-labels, and building name/price leaking into screen reader output
+- Fixed duplicate building info for screen readers
+
 ## Version 13.6
 
 ### Inaccessible Elements
