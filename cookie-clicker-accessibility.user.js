@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Cookie Clicker Access (Web)
 // @namespace    https://github.com/Amsel142857/Cookie-Clicker-Access
-// @version      1.3.6
+// @version      1.3.7
 // @description  Adapts the Steam accessibility mod for the web version of Cookie Clicker. Self-contained bundle with all modules.
 // @author       Claude (Original Mod), Guillem (Tampermonkey Adapter)
 // @match        https://orteil.dashnet.org/cookieclicker/
@@ -161,58 +161,58 @@ Game.registerMod("nvda accessibility", {
 				}
 				var el = document.activeElement;
 				if (!el) return;
-				// Check minigame panels
-				var row = el.closest('.onMinigame');
-				if (row) {
-					var rowId = row.id; // e.g. "row2"
-					var bldId = parseInt(rowId.replace('row', ''));
+				// Check minigame panels — find any open minigame regardless of focus location
+				for (var bldId in Game.ObjectsById) {
 					var bld = Game.ObjectsById[bldId];
 					if (bld && bld.onMinigame) {
 						var mgName = bld.minigameName || bld.name;
 						bld.switchMinigame(false);
 						Game.mods['nvda accessibility'].announce(mgName + ' closed');
-						var mgBtn = l('productMinigameButton' + bldId);
+						var mgBtn = l('productMinigameButton' + bld.id);
 						if (mgBtn) mgBtn.focus();
 						e.preventDefault();
 						return;
 					}
 				}
-				// Check panels in sectionLeft (dragon, santa, milk selector)
-				// NVDA virtual cursor may not set activeElement inside the panel directly,
-				// so check if focus is anywhere in sectionLeft and close the most specific open panel
-				var inSectionLeft = el.closest && el.closest('#sectionLeft');
-				if (inSectionLeft) {
-					// Check milk selector first (most specific)
-					var milkPanel = l('a11yMilkSelectorPanel');
-					if (milkPanel && milkPanel.contains(el)) {
-						var milkUpg = Game.Upgrades['Milk selector'];
-						if (milkUpg) milkUpg.buy();
-						var milkBtn = l('a11yMilkSelectorButton');
-						if (milkBtn) milkBtn.focus();
-						Game.mods['nvda accessibility'].announce('Milk selector closed');
+				// Check selector panels (milk, background, sound)
+				var selectorPanels = [
+					{id: 'a11yMilkSelectorPanel', upgName: 'Milk selector', label: 'Milk selector closed'},
+					{id: 'a11yBgSelectorPanel', upgName: 'Background selector', label: 'Background selector closed'},
+					{id: 'a11ySoundSelectorPanel', upgName: 'Golden cookie sound selector', label: 'Sound selector closed'}
+				];
+				for (var sp = 0; sp < selectorPanels.length; sp++) {
+					var sPanel = l(selectorPanels[sp].id);
+					if (sPanel) {
+						sPanel.remove();
+						Game.choiceSelectorOn = -1;
+						PlaySound('snd/tickOff.mp3');
+						var sCrate = Game.mods['nvda accessibility'].findSelectorCrate(selectorPanels[sp].upgName);
+						if (sCrate) sCrate.focus();
+						Game.mods['nvda accessibility'].announce(selectorPanels[sp].label);
 						e.preventDefault();
 						return;
 					}
-					// Check dragon panel
-					var dragonPanel = l('a11yDragonPanel');
-					if (dragonPanel) {
-						Game.ToggleSpecialMenu(0);
-						Game.mods['nvda accessibility'].announce('Krumblor the Dragon closed');
-						var dragonBtn = l('a11ySpecialTab_dragon');
-						if (dragonBtn) dragonBtn.focus();
-						e.preventDefault();
-						return;
-					}
-					// Check santa panel
-					var santaPanel = l('a11ySantaPanel');
-					if (santaPanel) {
-						Game.ToggleSpecialMenu(0);
-						Game.mods['nvda accessibility'].announce("Santa's Progress closed");
-						var santaBtn = l('a11ySpecialTab_santa');
-						if (santaBtn) santaBtn.focus();
-						e.preventDefault();
-						return;
-					}
+				}
+				// Check dragon panel (panel only exists when tab is open, so just check existence;
+				// focus may have fallen to body after aura confirm rebuilds the panel)
+				var dragonPanel = l('a11yDragonPanel');
+				if (dragonPanel) {
+					Game.ToggleSpecialMenu(0);
+					Game.mods['nvda accessibility'].announce('Krumblor the Dragon closed');
+					var dragonBtn = l('a11ySpecialTab_dragon');
+					if (dragonBtn) dragonBtn.focus();
+					e.preventDefault();
+					return;
+				}
+				// Check santa panel (same reasoning as dragon)
+				var santaPanel = l('a11ySantaPanel');
+				if (santaPanel) {
+					Game.ToggleSpecialMenu(0);
+					Game.mods['nvda accessibility'].announce("Santa's Progress closed");
+					var santaBtn = l('a11ySpecialTab_santa');
+					if (santaBtn) santaBtn.focus();
+					e.preventDefault();
+					return;
 				}
 			}
 		}, false);
@@ -557,6 +557,26 @@ Game.registerMod("nvda accessibility", {
 				}
 			}, 0);
 		};
+		// Wrap Game.storeBuyAll to announce which upgrades were purchased
+		var origStoreBuyAll = Game.storeBuyAll;
+		Game.storeBuyAll = function() {
+			var before = {};
+			for (var i in Game.UpgradesInStore) {
+				var u = Game.UpgradesInStore[i];
+				if (u && !u.bought) before[u.id] = u.dname || u.name;
+			}
+			origStoreBuyAll.apply(this, arguments);
+			var bought = [];
+			for (var id in before) {
+				var u = Game.UpgradesById[id];
+				if (u && u.bought) bought.push(before[id]);
+			}
+			if (bought.length > 0) {
+				MOD.announce('Bought ' + bought.length + ' upgrade' + (bought.length !== 1 ? 's' : '') + ': ' + bought.join(', '));
+			} else {
+				MOD.announce('No upgrades could be afforded');
+			}
+		};
 		// Wrap Game.ToggleSpecialMenu to create/remove accessible panels
 		var origToggleSpecialMenu = Game.ToggleSpecialMenu;
 		Game.ToggleSpecialMenu = function(on) {
@@ -608,15 +628,14 @@ Game.registerMod("nvda accessibility", {
 		MOD.gardenBuildPanelWrapped = false;
 		MOD.gardenBuildPlotWrapped = false;
 		MOD.gardenPlotSnapshot = {};
+		MOD.gardenGridPanelOpen = false;
+		MOD.gardenGridButtons = {};
 
 		MOD.gardenPrevUnlockedTiles = 0;
 		MOD.gardenPrevHarvests = -1;
 		MOD.gardenSnapshotInitialized = false;
 		MOD.stockMarketWrapped = false;
 		MOD.highestOwnedBuildingId = -1;
-		// Hide milk selector crate immediately — don't wait for the 500ms setTimeout
-		var earlyMilkCrate = MOD.findSelectorCrate('Milk selector');
-		if (earlyMilkCrate) { earlyMilkCrate.setAttribute('tabindex', '-1'); earlyMilkCrate.setAttribute('aria-hidden', 'true'); }
 		setTimeout(function() {
 			// Hide floating text particles (Lucky, Frenzy, etc.) — already announced via live regions
 			var particles = l('particles');
@@ -686,8 +705,8 @@ Game.registerMod("nvda accessibility", {
 				MOD.filterUnownedBuildings();
 			}, 100);
 		});
-		Game.Notify('Accessibility Enhanced', 'Version 13.6', [10, 0], 6);
-		this.announce('NVDA Accessibility mod version 13.6 loaded.');
+		Game.Notify('Accessibility Enhanced', 'Version 13.7', [10, 0], 6);
+		this.announce('NVDA Accessibility mod version 13.7 loaded.');
 	},
 	overrideDrawBuildings: function() {
 		var MOD = this;
@@ -1433,13 +1452,17 @@ Game.registerMod("nvda accessibility", {
 			upgradeBtn.style.cssText = 'display:block;width:100%;padding:8px;margin:5px 0;background:#336;border:1px solid #66a;color:#fff;cursor:pointer;';
 			upgradeBtn.addEventListener('click', function() {
 				var prevLevel = Game.dragonLevel;
-				var prevName = Game.dragonLevels[prevLevel] ? Game.dragonLevels[prevLevel].name : '';
+				var prevLevelInfo = Game.dragonLevels[prevLevel];
+				var prevName = prevLevelInfo ? prevLevelInfo.name : '';
+				var prevAction = prevLevelInfo ? prevLevelInfo.action.split('<br>')[0].replace(/<[^>]*>/g, '').replace(/^Train /, 'Trained ') : '';
 				Game.UpgradeDragon();
 				if (Game.dragonLevel > prevLevel) {
 					var newLevelInfo = Game.dragonLevels[Game.dragonLevel];
 					var newName = newLevelInfo ? MOD.stripHtml(newLevelInfo.name) : '';
 					if (newName && newName !== prevName) {
 						MOD.announce('Dragon upgraded to ' + newName + '.');
+					} else if (prevAction) {
+						MOD.announce('Dragon upgraded, ' + prevAction + '.');
 					} else {
 						MOD.announce('Dragon upgraded.');
 					}
@@ -1622,6 +1645,9 @@ Game.registerMod("nvda accessibility", {
 			MOD.editingAuraSlot = -1;
 			MOD.selectedAuraForSlot = -1;
 			Game.ToggleSpecialMenu(1);
+			// Restore focus to the aura slot button after panel rebuild
+			var newSlotBtn = l('a11yAuraSlotBtn' + slotNum);
+			if (newSlotBtn) newSlotBtn.focus();
 		});
 		btnRow.appendChild(confirmBtn);
 		var dismissBtn = document.createElement('button');
@@ -2113,7 +2139,7 @@ Game.registerMod("nvda accessibility", {
 				// Non-buff effects: announce the effect text from the game's popup
 				// Buff effects: handled by updateBuffTracker, no announcement needed here
 				var nonBuffEffects = ['multiply cookies', 'ruin cookies', 'blab',
-				                      'free sugar lump'];
+				                      'free sugar lump', 'cookie storm drop'];
 				if (capturedPopup && nonBuffEffects.indexOf(lastEffect) !== -1) {
 					MOD.announceUrgent(MOD.stripHtml(capturedPopup));
 				}
@@ -2301,6 +2327,10 @@ Game.registerMod("nvda accessibility", {
 				var remaining = Math.ceil(cur[n].time / Game.fps);
 				var added = Math.ceil((cur[n].time - MOD.lastBuffs[n].time) / Game.fps);
 				MOD.announceUrgent(n + ' extended by ' + added + ' seconds, ' + remaining + 's remaining.');
+			} else if (cur[n].maxTime !== MOD.lastBuffs[n].maxTime) {
+				// Buff was replaced with shorter duration (e.g. FTHOF gave same buff already active)
+				var duration = Math.ceil(cur[n].maxTime / Game.fps);
+				MOD.announceUrgent(n + ' refreshed for ' + duration + ' seconds!');
 			}
 		}
 		// Announce ended buffs
@@ -2388,14 +2418,18 @@ Game.registerMod("nvda accessibility", {
 				}
 			}
 		}
-		// Hide "Customize" button on the You building — purely visual customizer with no text descriptions
-		var youBld = Game.Objects['You'];
-		if (youBld && youBld.l) {
-			var customizeBtn = youBld.l.querySelector('.onlyOnCanvas');
-			if (customizeBtn) {
-				customizeBtn.setAttribute('aria-hidden', 'true');
-				customizeBtn.setAttribute('tabindex', '-1');
+		// Remove "Customize" link on the You building row — purely visual customizer with no accessible alternative
+		// The link is in row19 (the building row in the left panel), not in product19 (the store button)
+		var youRow = l('row19');
+		if (youRow) {
+			var customizeBtns = youRow.querySelectorAll('.onlyOnCanvas');
+			for (var ci = 0; ci < customizeBtns.length; ci++) {
+				customizeBtns[ci].remove();
 			}
+		}
+		// Disable the customizer prompt so it can't be triggered by any remaining references
+		if (Game.YouCustomizer && Game.YouCustomizer.prompt) {
+			Game.YouCustomizer.prompt = function() {};
 		}
 		// Hide muted building icon strip — purely visual
 		var buildingsMute = l('buildingsMute');
@@ -2569,6 +2603,28 @@ Game.registerMod("nvda accessibility", {
 		}
 		MOD.setAttributeIfChanged(el, 'role', 'button');
 		MOD.setAttributeIfChanged(el, 'tabindex', '0');
+		if (!el.dataset.a11yEnhanced) {
+			el.dataset.a11yEnhanced = 'true';
+			(function(building) {
+				el.addEventListener('keydown', function(e) {
+					if (e.key === 'Enter' || e.key === ' ') {
+						var isBuy = Game.buyMode === 1;
+						var bulk = Game.buyBulkShortcut ? Game.buyBulkOld : Game.buyBulk;
+						if (isBuy && bulk > 1) {
+							var bulkPrice = building.getSumPrice ? building.getSumPrice(bulk) : building.price * bulk;
+							if (Game.cookies < bulkPrice) {
+								e.preventDefault();
+								e.stopPropagation();
+								MOD.announce('Cannot afford ' + bulk + ' ' + building.name);
+								return;
+							}
+						}
+						e.preventDefault();
+						el.click();
+					}
+				});
+			})(bld);
+		}
 		// Hide all child elements inside the product button from screen readers
 		// so only our aria-label is announced (prevents duplicate name/price/owned reading).
 		// aria-hidden alone isn't enough — NVDA's arrow/word navigation can still read
@@ -2706,11 +2762,208 @@ Game.registerMod("nvda accessibility", {
 		// Label original garden elements directly
 		MOD.labelOriginalGardenElements(g);
 	},
+	setupGardenGrid: function() {
+		var MOD = this;
+		if (!MOD.gardenReady()) return;
+		var g = Game.Objects['Farm'].minigame;
+
+		// Compute active grid bounds from plotLimits
+		var level = Math.max(1, Math.min(g.plotLimits.length, g.parent.level)) - 1;
+		var limits = g.plotLimits[level];
+		var minX = limits[0], minY = limits[1], maxX = limits[2], maxY = limits[3];
+		var numRows = maxY - minY;
+		var numCols = maxX - minX;
+
+		// Store grid bounds
+		MOD.gardenGridBounds = { minX: minX, minY: minY, maxX: maxX, maxY: maxY };
+
+		// Hide the visual gardenPlot from screen readers
+		var gardenPlot = l('gardenPlot');
+		if (gardenPlot) gardenPlot.setAttribute('aria-hidden', 'true');
+
+		// If panel already exists with the same dimensions and is tracked, skip rebuild
+		var existing = l('a11yGardenGridPanel');
+		if (existing && MOD.gardenGridPanelOpen && existing.dataset.rows === String(numRows) && existing.dataset.cols === String(numCols)) {
+			return;
+		}
+		// Remove old panel if dimensions changed
+		if (existing) existing.remove();
+
+		// Create panel
+		var panel = document.createElement('div');
+		panel.id = 'a11yGardenGridPanel';
+		panel.setAttribute('role', 'region');
+		panel.setAttribute('aria-label', 'Garden grid');
+		panel.dataset.rows = String(numRows);
+		panel.dataset.cols = String(numCols);
+		panel.style.cssText = 'background:#1a2e1a;border:2px solid #6c6;padding:10px;margin:10px 0;';
+
+		// Grid container (no table semantics — labels handle row/column)
+		var grid = document.createElement('div');
+		panel.appendChild(grid);
+
+		// Store button references for updating labels
+		MOD.gardenGridButtons = {};
+		MOD.gardenGridCurrentX = minX;
+		MOD.gardenGridCurrentY = minY;
+
+		for (var y = minY; y < maxY; y++) {
+			var row = document.createElement('div');
+			for (var x = minX; x < maxX; x++) {
+				var btn = document.createElement('div');
+				btn.id = 'a11yGridBtn-' + x + '-' + y;
+				btn.setAttribute('role', 'button');
+				btn.style.cssText = 'display:inline-block;padding:4px 8px;margin:2px;min-width:60px;cursor:pointer;font-size:12px;text-align:left;background:#333;color:#fff;border:1px solid #555;';
+				btn.setAttribute('tabindex', '-1');
+
+				// Set initial label
+				var label = MOD.getGardenGridCellLabel(g, x, y);
+				btn.textContent = label;
+				btn.setAttribute('aria-label', label);
+
+				// Click/Enter handler — activate the game tile
+				(function(tileX, tileY, el) {
+					el.addEventListener('click', function() {
+						MOD.handleTileActivation(tileX, tileY);
+						setTimeout(function() {
+							if (MOD.gardenReady()) {
+								var gRef = Game.Objects['Farm'].minigame;
+								var newLabel = MOD.getGardenGridCellLabel(gRef, tileX, tileY);
+								var b = l('a11yGridBtn-' + tileX + '-' + tileY);
+								if (b) {
+									b.textContent = newLabel;
+									b.setAttribute('aria-label', newLabel);
+								}
+							}
+						}, 100);
+					});
+					el.addEventListener('keydown', function(e) {
+						if (e.key === 'Enter' || e.key === ' ') {
+							e.preventDefault();
+							el.click();
+						}
+					});
+				})(x, y, btn);
+
+				row.appendChild(btn);
+				MOD.gardenGridButtons[x + ',' + y] = btn;
+			}
+			grid.appendChild(row);
+		}
+
+		// Set first cell focusable
+		var firstBtn = MOD.gardenGridButtons[minX + ',' + minY];
+		if (firstBtn) firstBtn.setAttribute('tabindex', '0');
+
+		// Arrow key navigation on the grid
+		grid.addEventListener('keydown', function(e) {
+			var bounds = MOD.gardenGridBounds;
+			if (!bounds) return;
+			var cx = MOD.gardenGridCurrentX;
+			var cy = MOD.gardenGridCurrentY;
+			var nx = cx, ny = cy;
+			var handled = false;
+
+			switch (e.key) {
+				case 'ArrowRight': nx = cx + 1; handled = true; break;
+				case 'ArrowLeft': nx = cx - 1; handled = true; break;
+				case 'ArrowDown': ny = cy + 1; handled = true; break;
+				case 'ArrowUp': ny = cy - 1; handled = true; break;
+				case 'Home':
+					if (e.ctrlKey) { nx = bounds.minX; ny = bounds.minY; }
+					else { nx = bounds.minX; }
+					handled = true; break;
+				case 'End':
+					if (e.ctrlKey) { nx = bounds.maxX - 1; ny = bounds.maxY - 1; }
+					else { nx = bounds.maxX - 1; }
+					handled = true; break;
+			}
+
+			if (!handled) return;
+			e.preventDefault();
+
+			// Clamp to active bounds
+			if (nx < bounds.minX || nx >= bounds.maxX || ny < bounds.minY || ny >= bounds.maxY) return;
+
+			// Focus target cell (tabindex stays on top-left so Tab always enters there)
+			var newBtn = l('a11yGridBtn-' + nx + '-' + ny);
+			if (newBtn) newBtn.focus();
+			MOD.gardenGridCurrentX = nx;
+			MOD.gardenGridCurrentY = ny;
+		});
+
+		// Insert panel after the plot heading
+		var plotHeading = l('a11yGardenPlotHeading');
+		if (plotHeading && plotHeading.nextSibling) {
+			plotHeading.parentNode.insertBefore(panel, plotHeading.nextSibling);
+		} else {
+			var gardenField = l('gardenField');
+			if (gardenField && gardenField.parentNode) {
+				gardenField.parentNode.insertBefore(panel, gardenField);
+			}
+		}
+
+		MOD.gardenGridPanelOpen = true;
+	},
+	getGardenGridCellLabel: function(g, x, y) {
+		var t = g.plot[y] && g.plot[y][x];
+		var pos = '. Row ' + (y + 1) + ', column ' + (x + 1);
+		var lbl = '';
+		if (t && t[0] > 0) {
+			var pl = g.plantsById[t[0] - 1];
+			if (pl) {
+				var mature = pl.mature || 100;
+				var age = t[1];
+				var stage;
+				if (age >= mature) stage = 'mature';
+				else if (age >= mature * 0.666) stage = 'bloom';
+				else if (age >= mature * 0.333) stage = 'sprout';
+				else stage = 'bud';
+				lbl = pl.name + ', ' + stage;
+				// Time estimate
+				var dragonBoost = 1 / (1 + 0.05 * Game.auraMult('Supreme Intellect'));
+				var avgTick = pl.ageTick + pl.ageTickR / 2;
+				var ageMult = (g.plotBoost && g.plotBoost[y] && g.plotBoost[y][x]) ? g.plotBoost[y][x][0] : 1;
+				if (age < mature) {
+					var matFrames = ((100 / (ageMult * avgTick)) * ((mature - age) / 100) * dragonBoost * g.stepT) * 30;
+					var minuteFrames = Game.fps * 60;
+					lbl += '. Matures in about ' + Game.sayTime(Math.ceil(matFrames / minuteFrames) * minuteFrames, -1);
+				} else if (!pl.immortal) {
+					var decayFrames = ((100 / (ageMult * avgTick)) * ((100 - age) / 100) * dragonBoost * g.stepT) * 30;
+					var minuteFrames = Game.fps * 60;
+					lbl += '. Decays in about ' + Game.sayTime(Math.ceil(decayFrames / minuteFrames) * minuteFrames, -1);
+				}
+			} else {
+				lbl = 'Unknown plant';
+			}
+		} else {
+			lbl = 'Empty';
+		}
+		return lbl + pos;
+	},
+	updateGardenGridPanel: function() {
+		var MOD = this;
+		if (!MOD.gardenGridPanelOpen || !MOD.gardenGridButtons) return;
+		if (!MOD.gardenReady()) return;
+		var g = Game.Objects['Farm'].minigame;
+		var bounds = MOD.gardenGridBounds;
+		if (!bounds) return;
+		for (var y = bounds.minY; y < bounds.maxY; y++) {
+			for (var x = bounds.minX; x < bounds.maxX; x++) {
+				var btn = MOD.gardenGridButtons[x + ',' + y];
+				if (!btn) continue;
+				var label = MOD.getGardenGridCellLabel(g, x, y);
+				MOD.setAttributeIfChanged(btn, 'aria-label', label);
+				MOD.setTextIfChanged(btn, label);
+			}
+		}
+	},
 	labelSingleGardenTile: function(g, x, y) {
 		var tile = l('gardenTile-' + x + '-' + y);
 		if (!tile) return;
 		var t = g.plot[y] && g.plot[y][x];
-		var lbl = 'Row ' + (y+1) + ', column ' + (x+1) + ': ';
+		var pos = '. Row ' + (y+1) + ', column ' + (x+1);
+		var lbl = '';
 		if (t && t[0] > 0) {
 			var pl = g.plantsById[t[0] - 1];
 			if (pl) {
@@ -2728,7 +2981,7 @@ Game.registerMod("nvda accessibility", {
 				} else {
 					stage = 'bud'; effectScale = 10;
 				}
-				lbl += pl.name + ', ' + stage + ' (' + pct + '% grown, effects ' + effectScale + '%)';
+				lbl = pl.name + ', ' + stage + ' (' + pct + '% grown, effects ' + effectScale + '%)';
 				if (age >= mature) {
 					lbl += ', may reproduce, drops seed when harvested';
 				}
@@ -2755,12 +3008,12 @@ Game.registerMod("nvda accessibility", {
 					if (pb[2] != 1) lbl += '. Weed repellent: ' + Beautify(100 - pb[2] * 100) + '%';
 				}
 			} else {
-				lbl += 'Unknown plant';
+				lbl = 'Unknown plant';
 			}
 		} else {
-			lbl += 'Empty';
+			lbl = 'Empty';
 		}
-		tile.setAttribute('aria-label', lbl);
+		tile.setAttribute('aria-label', lbl + pos);
 	},
 	labelOriginalGardenElements: function(g) {
 		var MOD = this;
@@ -2772,19 +3025,6 @@ Game.registerMod("nvda accessibility", {
 				var tile = l('gardenTile-' + x + '-' + y);
 				if (!tile) continue;
 				MOD.labelSingleGardenTile(g, x, y);
-				MOD.setAttributeIfChanged(tile, 'role', 'button');
-				MOD.setAttributeIfChanged(tile, 'tabindex', '0');
-				if (!tile.getAttribute('data-a11y-kb')) {
-					tile.setAttribute('data-a11y-kb', '1');
-					(function(tileX, tileY) {
-						tile.addEventListener('keydown', function(e) {
-							if (e.key === 'Enter' || e.key === ' ') {
-								e.preventDefault();
-								MOD.handleTileActivation(tileX, tileY);
-							}
-						});
-					})(x, y);
-				}
 				if (!tile.getAttribute('data-a11y-click')) {
 					tile.setAttribute('data-a11y-click', '1');
 					(function(tileX, tileY) {
@@ -3075,22 +3315,29 @@ Game.registerMod("nvda accessibility", {
 			}
 		}
 
-		// Add section headings to original game elements (only once)
-		var headingsToAdd = [
-			{ id: 'a11yGardenToolsHeading', text: 'Tools', beforeId: 'gardenTools' },
-			{ id: 'a11yGardenSoilHeading', text: 'Soil' + (Game.Has('Turbo-charged soil') ? '' : ', can switch every 10 minutes'), beforeId: 'gardenSoil-0' },
-		];
-		for (var i = 0; i < headingsToAdd.length; i++) {
-			var h = headingsToAdd[i];
-			if (!l(h.id)) {
-				var heading = document.createElement('h3');
-				heading.id = h.id;
-				heading.textContent = h.text;
-				heading.style.cssText = 'color:#6c6;margin:8px 0 4px 0;font-size:14px;';
-				var target = l(h.beforeId);
-				if (target && target.parentNode) {
-					target.parentNode.insertBefore(heading, target);
-				}
+		// Make the game's existing "Tools" label act as a heading
+		var gardenToolsEl = l('gardenTools');
+		if (gardenToolsEl) {
+			var toolsLabel = gardenToolsEl.previousElementSibling;
+			while (toolsLabel && !toolsLabel.classList.contains('gardenPanelLabel')) {
+				toolsLabel = toolsLabel.previousElementSibling;
+			}
+			if (toolsLabel && toolsLabel.getAttribute('role') !== 'heading') {
+				toolsLabel.setAttribute('role', 'heading');
+				toolsLabel.setAttribute('aria-level', '3');
+			}
+		}
+		// Add soil heading
+		var soilHeadingId = 'a11yGardenSoilHeading';
+		if (!l(soilHeadingId)) {
+			var soilText = 'Soil' + (Game.Has('Turbo-charged soil') ? '' : ', can switch every 10 minutes');
+			var soilHeading = document.createElement('h3');
+			soilHeading.id = soilHeadingId;
+			soilHeading.textContent = soilText;
+			soilHeading.style.cssText = 'color:#6c6;margin:8px 0 4px 0;font-size:14px;';
+			var soilTarget = l('gardenSoil-0');
+			if (soilTarget && soilTarget.parentNode) {
+				soilTarget.parentNode.insertBefore(soilHeading, soilTarget);
 			}
 		}
 		// Seeds heading with discovery count (updated dynamically)
@@ -3111,20 +3358,18 @@ Game.registerMod("nvda accessibility", {
 		// Plots heading with size level
 		var gardenPlot = l('gardenPlot');
 		if (gardenPlot) {
-			gardenPlot.removeAttribute('role');
-			gardenPlot.removeAttribute('aria-label');
+			gardenPlot.setAttribute('aria-hidden', 'true');
 		}
 		var plotSizeEl = l('gardenPlotSize');
 		if (plotSizeEl) {
 			plotSizeEl.setAttribute('aria-hidden', 'true');
 		}
-		var plotLevel = Math.max(1, Math.min(g.plotLimits.length, g.parent.level));
-		var plotTotal = g.plotLimits.length;
+		var plotLevel = Math.max(1, Math.min(g.plotLimits.length, g.parent.level)) - 1;
+		var limits = g.plotLimits[plotLevel];
+		var plotRows = limits[3] - limits[1];
+		var plotCols = limits[2] - limits[0];
 		var plotHeading = l('a11yGardenPlotHeading');
-		var plotText = 'Plots, ' + plotLevel + '/' + plotTotal + ' (upgrades with farm level)';
-		if (plotLevel >= plotTotal) {
-			plotText = 'Plots, max size';
-		}
+		var plotText = 'Plots, ' + plotRows + ' rows by ' + plotCols + ' columns';
 		if (!plotHeading) {
 			plotHeading = document.createElement('h3');
 			plotHeading.id = 'a11yGardenPlotHeading';
@@ -3135,6 +3380,9 @@ Game.registerMod("nvda accessibility", {
 			}
 		}
 		plotHeading.textContent = plotText;
+
+		// Build or update the accessible grid panel below the heading
+		MOD.setupGardenGrid();
 
 		// Create tick timer info bar at top of garden
 		var gardenInfoBar = l('a11y-garden-info-bar');
@@ -3176,21 +3424,22 @@ Game.registerMod("nvda accessibility", {
 		if (g.seedSelected >= 0 && g.plantsById[g.seedSelected]) {
 			selectedSeedName = g.plantsById[g.seedSelected].name;
 		}
-		var label = 'Row ' + (y+1) + ', column ' + (x+1) + ': ';
+		var pos = '. Row ' + (y+1) + ', column ' + (x+1);
+		var label = '';
 		if (info.isEmpty) {
 			if (selectedSeedName) {
-				label += 'Empty. Press Enter to plant ' + selectedSeedName;
+				label = 'Empty. Press Enter to plant ' + selectedSeedName;
 				btn.style.background = '#2a3a2a';
 				btn.style.border = '1px solid #4a4';
 				btn.style.color = '#afa';
 			} else {
-				label += 'Empty. Select a seed first to plant';
+				label = 'Empty. Select a seed first to plant';
 				btn.style.background = '#333';
 				btn.style.border = '1px solid #555';
 				btn.style.color = '#fff';
 			}
 		} else if (info.isMature) {
-			label += info.name + ', mature, READY. Press Enter to harvest';
+			label = info.name + ', mature, READY. Press Enter to harvest';
 			// Time estimate for decay
 			if (info.plant && !info.plant.immortal) {
 				var dragonBoost = 1 / (1 + 0.05 * Game.auraMult('Supreme Intellect'));
@@ -3206,7 +3455,7 @@ Game.registerMod("nvda accessibility", {
 			btn.style.border = '1px solid #aa4';
 			btn.style.color = '#ffa';
 		} else {
-			label += info.name + ', ' + info.stage + ', ' + info.growth + '% grown';
+			label = info.name + ', ' + info.stage + ', ' + info.growth + '% grown';
 			// Time estimate for maturation
 			if (info.plant) {
 				var dragonBoost = 1 / (1 + 0.05 * Game.auraMult('Supreme Intellect'));
@@ -3220,8 +3469,9 @@ Game.registerMod("nvda accessibility", {
 			btn.style.border = '1px solid #55a';
 			btn.style.color = '#aaf';
 		}
-		btn.textContent = label;
-		btn.setAttribute('aria-label', label);
+		var fullLabel = label + pos;
+		btn.textContent = fullLabel;
+		btn.setAttribute('aria-label', fullLabel);
 	},
 	// Update all plot buttons in-place
 	updateAllPlotButtons: function() {
@@ -3506,11 +3756,11 @@ Game.registerMod("nvda accessibility", {
 		}
 		// Check affordability before planting for specific feedback
 		if (!g.canPlant(seed)) {
-			var cost = g.getCost(seed);
-			var cps = Game.cookiesPs;
-			if (Game.cpsSucked) cps = cps * (1 - Game.cpsSucked);
-			if (cps > 0) {
-				MOD.gardenAnnounce('Can afford in ' + MOD.getTimeUntilAfford(cost));
+			var timeStr = MOD.getTimeUntilAfford(g.getCost(seed));
+			if (timeStr) {
+				MOD.gardenAnnounce('Can afford in ' + timeStr);
+			} else {
+				MOD.gardenAnnounce('Cannot afford');
 			}
 			return;
 		}
@@ -3600,6 +3850,13 @@ Game.registerMod("nvda accessibility", {
 		if (!MOD.gardenReady()) return;
 		var g = Game.Objects['Farm'].minigame;
 		var gardenIsOpen = Game.Objects['Farm'].onMinigame;
+		// Clean up grid panel if garden was closed
+		if (!gardenIsOpen && MOD.gardenGridPanelOpen) {
+			var gridPanel = l('a11yGardenGridPanel');
+			if (gridPanel) gridPanel.remove();
+			MOD.gardenGridPanelOpen = false;
+			MOD.gardenGridButtons = {};
+		}
 		var stages = ['bud', 'sprout', 'bloom', 'mature'];
 		var getStage = function(age, mature) {
 			if (age >= mature) return 4;
@@ -3719,6 +3976,8 @@ Game.registerMod("nvda accessibility", {
 		MOD.labelOriginalGardenElements(g);
 		// Update accessible plot buttons in-place
 		MOD.updateAllPlotButtons();
+		// Update the grid panel if open
+		MOD.updateGardenGridPanel();
 	},
 	getSpiritSlotEffect: function(god, slotIndex) {
 		var MOD = this;
@@ -4638,13 +4897,8 @@ Game.registerMod("nvda accessibility", {
 			var oldHeading = l('a11yStoreHeading');
 			if (oldHeading) oldHeading.remove();
 		}
-		// Hide the milk selector crate — we have a dedicated button in sectionLeft.
-		// Must run here because RebuildUpgrades recreates the crate DOM.
-		var milkCrate = MOD.findSelectorCrate('Milk selector');
-		if (milkCrate) {
-			MOD.setAttributeIfChanged(milkCrate, 'tabindex', '-1');
-			milkCrate.setAttribute('aria-hidden', 'true');
-		}
+		// Update milk selector crate label (RebuildUpgrades recreates the crate DOM)
+		MOD.updateMilkLabel();
 		// Vault upgrades
 		var vc = l('vaultUpgrades');
 		if (vc) {
@@ -4669,7 +4923,7 @@ Game.registerMod("nvda accessibility", {
 		if (buyAllBtn && !buyAllBtn.dataset.a11yEnhanced) {
 			buyAllBtn.setAttribute('role', 'button');
 			buyAllBtn.setAttribute('tabindex', '0');
-			buyAllBtn.setAttribute('aria-label', 'Buy all affordable upgrades. Shift click to vault instead.');
+			buyAllBtn.setAttribute('aria-label', 'Buy all available upgrades');
 			buyAllBtn.addEventListener('keydown', function(e) {
 				if (e.key === 'Enter' || e.key === ' ') {
 					e.preventDefault();
@@ -4699,6 +4953,7 @@ Game.registerMod("nvda accessibility", {
 	},
 	getTimeUntilAfford: function(price) {
 		try {
+			if (!Game.Has('Genius accounting')) return '';
 			var cookies = Game.cookies;
 			if (cookies >= price) return 'Affordable now';
 			var deficit = price - cookies;
@@ -4741,11 +4996,8 @@ Game.registerMod("nvda accessibility", {
 					price = building.getSumPrice ? building.getSumPrice(bulkAmount) : building.price * bulkAmount;
 				}
 				if (Game.cookies < price) {
-					var cps = Game.cookiesPs;
-					if (Game.cpsSucked) cps = cps * (1 - Game.cpsSucked);
-					if (cps > 0) {
-						lines.push('Can afford in ' + MOD.getTimeUntilAfford(price));
-					}
+					var timeStr = MOD.getTimeUntilAfford(price);
+					if (timeStr) lines.push('Can afford in ' + timeStr);
 				}
 			}
 			// In sell mode, don't show time until affordable
@@ -4808,9 +5060,11 @@ Game.registerMod("nvda accessibility", {
 		var MOD = this;
 		try {
 			var price = Math.round(upgrade.getPrice());
-			return 'Time until affordable: ' + MOD.getTimeUntilAfford(price);
+			var timeStr = MOD.getTimeUntilAfford(price);
+			if (timeStr) return 'Time until affordable: ' + timeStr;
+			return '';
 		} catch(e) {
-			return 'Time unknown';
+			return '';
 		}
 	},
 	ensureUpgradeInfoButton: function(upgrade, crate) {
@@ -4871,14 +5125,16 @@ Game.registerMod("nvda accessibility", {
 				break;
 			}
 		}
+		// Selector upgrades have their own label functions — re-apply after the generic label
+		var selectorName = u.name || '';
+		if (selectorName === 'Milk selector') MOD.updateMilkLabel();
+		else if (selectorName === 'Background selector') MOD.updateBackgroundLabel();
+		else if (selectorName === 'Golden cookie sound selector') MOD.updateSoundLabel();
 		// Clear ariaReader label so game's crateTooltip text can't stick
 		var a = l('ariaReader-upgrade-' + u.id);
 		if (a) a.innerHTML = '';
 		// Also add a visible/focusable text element below the upgrade
-		// Skip milk selector — it's hidden and has a dedicated panel
-		if ((u.name || '') !== 'Milk selector') {
-			MOD.ensureUpgradeInfoText(u);
-		}
+		MOD.ensureUpgradeInfoText(u);
 	},
 	ensureUpgradeInfoText: function(u) {
 		var MOD = this;
@@ -4903,10 +5159,9 @@ Game.registerMod("nvda accessibility", {
 		if (u.canBuy()) {
 			infoText = desc;
 		} else {
-			var cps = Game.cookiesPs;
-			if (Game.cpsSucked) cps = cps * (1 - Game.cpsSucked);
-			if (cps > 0) {
-				infoText = 'Can afford in ' + MOD.getTimeUntilAfford(u.getPrice()) + '. ' + desc;
+			var timeStr = MOD.getTimeUntilAfford(u.getPrice());
+			if (timeStr) {
+				infoText = 'Can afford in ' + timeStr + '. ' + desc;
 			} else {
 				infoText = desc;
 			}
@@ -5029,7 +5284,8 @@ Game.registerMod("nvda accessibility", {
 			if (plant.plantable !== false && !Game.Has('Turbo-charged soil')) {
 				var cost = g.getCost(plant);
 				if (!g.canPlant(plant)) {
-					lines.push('Affordable in ' + MOD.getTimeUntilAfford(cost) + '.');
+					var timeStr = MOD.getTimeUntilAfford(cost);
+					if (timeStr) lines.push('Affordable in ' + timeStr + '.');
 				}
 			}
 
@@ -5312,7 +5568,7 @@ Game.registerMod("nvda accessibility", {
 	enhanceAscensionUI: function() {
 		var MOD = this;
 		var ao = l('ascendOverlay');
-		if (ao) { MOD.setAttributeIfChanged(ao, 'role', 'region'); ao.setAttribute('aria-label', 'Ascension'); }
+		if (ao) { ao.removeAttribute('role'); ao.removeAttribute('aria-label'); }
 		var ab = l('ascendButton');
 		if (ab) {
 			MOD.setAttributeIfChanged(ab, 'role', 'button'); MOD.setAttributeIfChanged(ab, 'tabindex', '0');
@@ -5322,17 +5578,29 @@ Game.registerMod("nvda accessibility", {
 				ab.addEventListener('keydown', function(e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); ab.click(); } });
 			}
 		}
-		// Make prestige and heavenly chips data accessible
+		// Promote prestige level heading from h3 to h2
 		var d1 = l('ascendData1');
+		var prestigeH3 = d1 ? d1.querySelector('h3') : null;
+		if (prestigeH3 && prestigeH3.tagName === 'H3') {
+			var h2 = document.createElement('h2');
+			h2.id = prestigeH3.id;
+			h2.innerHTML = prestigeH3.innerHTML;
+			prestigeH3.parentNode.replaceChild(h2, prestigeH3);
+		}
 		if (d1) {
 			d1.removeAttribute('aria-hidden');
-			MOD.setAttributeIfChanged(d1, 'tabindex', '0');
+			d1.removeAttribute('tabindex');
 			d1.setAttribute('aria-label', 'Prestige level: ' + Beautify(Game.prestige));
 		}
+		// Remove heading role from heavenly chips h3
 		var d2 = l('ascendData2');
+		var chipsH3 = d2 ? d2.querySelector('h3') : null;
+		if (chipsH3) {
+			chipsH3.setAttribute('role', 'presentation');
+		}
 		if (d2) {
 			d2.removeAttribute('aria-hidden');
-			MOD.setAttributeIfChanged(d2, 'tabindex', '0');
+			d2.removeAttribute('tabindex');
 			d2.setAttribute('aria-label', 'Heavenly chips available: ' + Beautify(Game.heavenlyChips));
 		}
 		// Label the challenge mode selector button
@@ -5970,24 +6238,8 @@ Game.registerMod("nvda accessibility", {
 	},
 	enhanceQoLSelectors: function() {
 		var MOD = this;
-		// Milk selector button in sectionLeft (below milk display)
-		var milkUpg = Game.Upgrades['Milk selector'];
-		var milkUnlocked = milkUpg && milkUpg.unlocked;
-		var milkBtn = l('a11yMilkSelectorButton');
-		if (milkBtn) {
-			if (milkUnlocked) {
-				milkBtn.style.display = '';
-				MOD.updateMilkLabel();
-			} else {
-				milkBtn.style.display = 'none';
-			}
-		}
-		// Hide the store crate since we have a dedicated button below the milk display
-		var milkCrate = MOD.findSelectorCrate('Milk selector');
-		if (milkCrate) {
-			MOD.setAttributeIfChanged(milkCrate, 'tabindex', '-1');
-			milkCrate.setAttribute('aria-hidden', 'true');
-		}
+		// Update milk selector crate label in the store
+		MOD.updateMilkLabel();
 		// Season selector - check if any season switcher upgrade is owned
 		var seasonUnlocked = Game.Has('Season switcher');
 		var seasonBox = l('seasonBox');
@@ -6029,19 +6281,18 @@ Game.registerMod("nvda accessibility", {
 		});
 	},
 	updateMilkLabel: function() {
+		var MOD = this;
 		var milkUpg = Game.Upgrades['Milk selector'];
 		if (!milkUpg || !milkUpg.unlocked) return;
-		var milkName = 'Automatic';
-		if (Game.milkType !== undefined && Game.milkType > 0 && Game.AllMilks && Game.AllMilks[Game.milkType]) {
-			milkName = Game.AllMilks[Game.milkType].name || 'Milk ' + Game.milkType;
-		} else if (Game.milkType === 0) {
-			milkName = 'Automatic (based on achievements)';
-		}
-		// Update the main button in sectionLeft
-		var milkBtn = l('a11yMilkSelectorButton');
-		if (milkBtn) {
-			this.setTextIfChanged(milkBtn, 'Milk selector: ' + milkName);
-			milkBtn.removeAttribute('aria-label');
+		var milkCrate = MOD.findSelectorCrate('Milk selector');
+		if (milkCrate) {
+			var milkName = 'Automatic';
+			if (Game.milkType !== undefined && Game.milkType > 0 && Game.AllMilks && Game.AllMilks[Game.milkType]) {
+				milkName = Game.AllMilks[Game.milkType].name || 'Milk ' + Game.milkType;
+			} else if (Game.milkType === 0) {
+				milkName = 'Automatic (based on achievements)';
+			}
+			milkCrate.setAttribute('aria-label', 'Milk selector. Current: ' + milkName + '.');
 		}
 	},
 	setupMilkSelectorOverride: function() {
@@ -6111,8 +6362,22 @@ Game.registerMod("nvda accessibility", {
 			panel.remove();
 			Game.choiceSelectorOn = -1;
 			PlaySound('snd/tickOff.mp3');
+			var milkCrate = MOD.findSelectorCrate('Milk selector');
+			if (milkCrate) milkCrate.focus();
 		});
 		panel.appendChild(closeBtn);
+		// Escape key to close
+		panel.addEventListener('keydown', function(e) {
+			if (e.key === 'Escape') {
+				e.preventDefault();
+				e.stopPropagation();
+				panel.remove();
+				Game.choiceSelectorOn = -1;
+				PlaySound('snd/tickOff.mp3');
+				var milkCrate = MOD.findSelectorCrate('Milk selector');
+				if (milkCrate) milkCrate.focus();
+			}
+		});
 		// Milk choice buttons
 		for (var i = 0; i < choices.length; i++) {
 			if (!choices[i]) continue;
@@ -6151,19 +6416,13 @@ Game.registerMod("nvda accessibility", {
 			})(id, choice.name);
 			panel.appendChild(btn);
 		}
-		// Insert after the milk selector button in sectionLeft
-		var milkBtn = l('a11yMilkSelectorButton');
-		if (milkBtn) {
-			milkBtn.parentNode.insertBefore(panel, milkBtn.nextSibling);
-		} else {
-			// Fallback: insert into sectionLeft before sectionLeftExtra
-			var sectionLeft = l('sectionLeft');
-			var sectionLeftExtra = l('sectionLeftExtra');
-			if (sectionLeft && sectionLeftExtra) {
-				sectionLeft.insertBefore(panel, sectionLeftExtra);
-			} else if (sectionLeft) {
-				sectionLeft.appendChild(panel);
-			}
+		// Insert into sectionLeft near other selector panels
+		var sectionLeft = l('sectionLeft');
+		var sectionLeftExtra = l('sectionLeftExtra');
+		if (sectionLeft && sectionLeftExtra) {
+			sectionLeft.insertBefore(panel, sectionLeftExtra);
+		} else if (sectionLeft) {
+			sectionLeft.appendChild(panel);
 		}
 		heading.focus();
 	},
@@ -6180,7 +6439,7 @@ Game.registerMod("nvda accessibility", {
 			} else if (Game.bgType === 0) {
 				bgName = 'Automatic (changes with milk)';
 			}
-			bgCrate.setAttribute('aria-label', 'Background selector. Current: ' + bgName + '. Click to open selector.');
+			bgCrate.setAttribute('aria-label', 'Background selector. Current: ' + bgName + '.');
 		}
 	},
 	setupBackgroundSelectorOverride: function() {
@@ -6247,6 +6506,8 @@ Game.registerMod("nvda accessibility", {
 			panel.remove();
 			Game.choiceSelectorOn = -1;
 			PlaySound('snd/tickOff.mp3');
+			var bgCrate = MOD.findSelectorCrate('Background selector');
+			if (bgCrate) bgCrate.focus();
 		});
 		panel.appendChild(closeBtn);
 		// Escape key to close
@@ -6257,6 +6518,8 @@ Game.registerMod("nvda accessibility", {
 				panel.remove();
 				Game.choiceSelectorOn = -1;
 				PlaySound('snd/tickOff.mp3');
+				var bgCrate = MOD.findSelectorCrate('Background selector');
+				if (bgCrate) bgCrate.focus();
 			}
 		});
 		// Background choice buttons
@@ -6411,7 +6674,7 @@ Game.registerMod("nvda accessibility", {
 					chimeName = choices[Game.chimeType].name || 'Sound ' + Game.chimeType;
 				}
 			}
-			soundCrate.setAttribute('aria-label', 'Golden cookie sound selector. Current: ' + chimeName + '. Click to open selector.');
+			soundCrate.setAttribute('aria-label', 'Golden cookie sound selector. Current: ' + chimeName + '.');
 		}
 	},
 	setupSoundSelectorOverride: function() {
@@ -6464,6 +6727,8 @@ Game.registerMod("nvda accessibility", {
 			panel.remove();
 			Game.choiceSelectorOn = -1;
 			PlaySound('snd/tickOff.mp3');
+			var soundCrate = MOD.findSelectorCrate('Golden cookie sound selector');
+			if (soundCrate) soundCrate.focus();
 		});
 		panel.appendChild(closeBtn);
 		// Escape key to close
@@ -6474,6 +6739,8 @@ Game.registerMod("nvda accessibility", {
 				panel.remove();
 				Game.choiceSelectorOn = -1;
 				PlaySound('snd/tickOff.mp3');
+				var soundCrate = MOD.findSelectorCrate('Golden cookie sound selector');
+				if (soundCrate) soundCrate.focus();
 			}
 		});
 		// Sound choice buttons
@@ -6544,7 +6811,7 @@ Game.registerMod("nvda accessibility", {
 		// Collapsible heading — starts collapsed
 		var heading = document.createElement('h2');
 		heading.id = 'a11yGameStatsHeading';
-		heading.textContent = 'Game Stats';
+		heading.textContent = 'Game Stats (' + (Game.AchievementsOwned || 0) + ' achievements)';
 		heading.setAttribute('role', 'button');
 		heading.setAttribute('tabindex', '0');
 		heading.setAttribute('aria-expanded', 'false');
@@ -6610,6 +6877,11 @@ Game.registerMod("nvda accessibility", {
 	},
 	updateGameStatsPanel: function() {
 		var MOD = this;
+		// Update achievement count in heading
+		var heading = l('a11yGameStatsHeading');
+		if (heading) {
+			MOD.setTextIfChanged(heading, 'Game Stats (' + (Game.AchievementsOwned || 0) + ' achievements)');
+		}
 		var cpsEl = l('a11yStatCps');
 		var cpcEl = l('a11yStatCpc');
 		var bankEl = l('a11yStatBank');
@@ -6629,7 +6901,7 @@ Game.registerMod("nvda accessibility", {
 			if (heralds > 0 && Game.Has('Heralds') && Game.ascensionMode !== 1) {
 				heraldText = 'Heralds: ' + heralds + ', +' + heralds + '% cookies per second';
 			} else if (heralds > 0 && !Game.Has('Heralds')) {
-				heraldText = 'Heralds: ' + heralds + ', purchase the Heralds upgrade to benefit';
+				heraldText = 'Heralds: ' + heralds + ', not active';
 			} else if (heralds > 0 && Game.ascensionMode === 1) {
 				heraldText = 'Heralds: ' + heralds + ', not active during Born Again';
 			} else {
@@ -6652,16 +6924,12 @@ Game.registerMod("nvda accessibility", {
 			} else {
 				prestigeText += 'Prestige level: 0';
 			}
-			// Compute ascend-now gains and cookies to next level (same math as game-main.js:16536-16569)
+			// Cookies needed for next prestige level (ascend gains already shown on Legacy button)
 			var chipsOwned = Game.HowMuchPrestige(Game.cookiesReset);
 			var ascendNowToOwn = Math.floor(Game.HowMuchPrestige(Game.cookiesReset + Game.cookiesEarned));
-			var ascendNowToGet = ascendNowToOwn - Math.floor(chipsOwned);
-			if (ascendNowToGet > 0) {
-				prestigeText += ', ascending now would gain ' + Beautify(ascendNowToGet) + ' prestige levels';
-			}
 			var cookiesToNext = Game.HowManyCookiesReset(ascendNowToOwn + 1) - (Game.cookiesEarned + Game.cookiesReset);
 			if (cookiesToNext >= 0) {
-				prestigeText += ', ' + Beautify(cookiesToNext) + ' cookies to next level';
+				prestigeText += ', ' + Beautify(cookiesToNext) + ' cookies to next prestige level';
 			}
 			MOD.setTextIfChanged(prestigeEl, prestigeText);
 		}
@@ -6876,8 +7144,10 @@ Game.registerMod("nvda accessibility", {
 					productEl.style.display = '';
 					productEl.removeAttribute('aria-hidden');
 					var cost = Beautify(bld.price);
+					var mysteryLabel = 'Mystery building. Cost: ' + cost + ' cookies';
 					var timeUntil = MOD.getTimeUntilAfford(bld.price);
-					MOD.setAttributeIfChanged(productEl, 'aria-label', 'Mystery building. Cost: ' + cost + ' cookies. Time until affordable: ' + timeUntil);
+					if (timeUntil) mysteryLabel += '. Time until affordable: ' + timeUntil;
+					MOD.setAttributeIfChanged(productEl, 'aria-label', mysteryLabel);
 					if (infoBtn) {
 						infoBtn.style.display = 'none';
 						MOD.setAttributeIfChanged(infoBtn, 'aria-hidden', 'true');
@@ -7045,28 +7315,9 @@ Game.registerMod("nvda accessibility", {
 		milkDiv.textContent = 'Milk: Loading...';
 		milkDiv.style.cssText = 'background:#1a1a1a;color:#fff;padding:8px;margin:5px;text-align:center;border:1px solid #444;font-size:12px;position:relative;z-index:50;';
 		sectionLeft.insertBefore(milkDiv, insertPoint);
-		// Create Milk selector button
+		// Clean up old milk selector button from prior versions
 		var oldMilkBtn = l('a11yMilkSelectorButton');
 		if (oldMilkBtn) oldMilkBtn.remove();
-		var milkBtn = document.createElement('button');
-		milkBtn.type = 'button';
-		milkBtn.id = 'a11yMilkSelectorButton';
-		milkBtn.setAttribute('tabindex', '0');
-		milkBtn.style.cssText = 'display:none;width:calc(100% - 10px);padding:8px;margin:5px;background:#336;border:1px solid #66a;color:#fff;cursor:pointer;font-size:12px;text-align:center;position:relative;z-index:50;';
-		milkBtn.addEventListener('click', function() {
-			var milkUpg = Game.Upgrades['Milk selector'];
-			if (milkUpg) milkUpg.buy();
-		});
-		sectionLeft.insertBefore(milkBtn, insertPoint);
-		// Set initial label and visibility
-		var milkSelectorUpg = Game.Upgrades['Milk selector'];
-		if (milkSelectorUpg && milkSelectorUpg.unlocked) {
-			milkBtn.style.display = '';
-			MOD.updateMilkLabel();
-		} else {
-			milkBtn.textContent = 'Milk selector';
-			milkBtn.setAttribute('aria-label', 'Milk selector');
-		}
 		// Label mystery elements in the left column
 		MOD.labelMysteryElements();
 	},
@@ -7142,6 +7393,8 @@ Game.registerMod("nvda accessibility", {
 		menuButtons.forEach(function(btn) {
 			MOD.setAttributeIfChanged(btn, 'tabindex', '0');
 		});
+		// Update Milk display
+		MOD.updateMilkDisplay();
 		// Find any unlabeled number displays
 		MOD.findAndLabelUnknownDisplays();
 	},
@@ -7227,10 +7480,8 @@ Game.registerMod("nvda accessibility", {
 					minigameName = bld.minigame.name;
 					minigameUnlocked = true;
 				}
-				// Label the main row
-				var rowLabel = bld.name + ' building row. Level ' + level + '.';
-				if (minigameUnlocked && minigameName) rowLabel += ' Has ' + minigameName + ' minigame.';
-				MOD.setAttributeIfChanged(rowEl, 'aria-label', rowLabel);
+				// Don't set aria-label on the row — it masks the buttons inside
+				rowEl.removeAttribute('aria-label');
 				// Find and label clickable elements within the row
 				rowEl.querySelectorAll('div[onclick], .rowSpecial, .rowCanvas').forEach(function(el) {
 					var onclick = el.getAttribute('onclick') || '';
@@ -7380,8 +7631,6 @@ Game.registerMod("nvda accessibility", {
 		}
 		// Update any mystery number labels
 		MOD.findAndLabelUnknownDisplays();
-		// Update Milk display
-		MOD.updateMilkDisplay();
 	},
 
 	// ============================================

@@ -10,6 +10,12 @@
 
 ### Other Changes
 - Purchased upgrades are now announced when using Buy All Upgrades button
+- Dragon upgrade now announces what was trained (e.g. "Trained Breath of Milk")
+- Focus restored to aura slot after confirming dragon aura selection
+- Escape closes panels regardless of focus location (minigames, selectors, dragon, santa)
+- Background and sound selector panels return focus to crate on close
+- Removed "Click to open selector" from selector labels
+- Garden plot labels show plant info before row/column coordinates
 - Fixed FTHOF shimmer announcements for buff replacements and storm cookie drops
 - Cleaned up ascension screen labels and heralds display
 - Removed aria-label from building rows to properly expose inner buttons

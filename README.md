@@ -50,7 +50,7 @@ If you want to modify the mod and rebuild the userscript:
 
 ## Getting Started
 
-When the mod loads, it announces "NVDA Accessibility mod version 13.6 loaded." The game interface is organized into navigable sections using headings:
+When the mod loads, it announces "NVDA Accessibility mod version 13.7 loaded." The game interface is organized into navigable sections using headings:
 
 - **News** (H2): The game's news ticker. Focusable but set to aria-live off to avoid noise.
 - **Store** (H2): Contains available upgrades and buildings.

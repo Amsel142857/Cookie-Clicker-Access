@@ -680,8 +680,8 @@ Game.registerMod("nvda accessibility", {
 				MOD.filterUnownedBuildings();
 			}, 100);
 		});
-		Game.Notify('Accessibility Enhanced', 'Version 13.6', [10, 0], 6);
-		this.announce('NVDA Accessibility mod version 13.6 loaded.');
+		Game.Notify('Accessibility Enhanced', 'Version 13.7', [10, 0], 6);
+		this.announce('NVDA Accessibility mod version 13.7 loaded.');
 	},
 	overrideDrawBuildings: function() {
 		var MOD = this;
