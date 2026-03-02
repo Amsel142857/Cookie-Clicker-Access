@@ -4808,15 +4808,7 @@ Game.registerMod("nvda accessibility", {
 		var bc = l('bigCookie');
 		if (bc) bc.setAttribute('aria-label', 'Big cookie - Click to bake cookies');
 		// Store section - H2 heading added in enhanceUpgradeShop
-		// Upgrades section
-		var up = l('upgrades');
-		if (up && !l('a11yUpgradesHeading')) {
-			var upgradesHeading = document.createElement('h3');
-			upgradesHeading.id = 'a11yUpgradesHeading';
-			upgradesHeading.textContent = 'Available Upgrades';
-			upgradesHeading.style.cssText = 'position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;';
-			up.insertBefore(upgradesHeading, up.firstChild);
-		}
+		// Upgrades section - H3 heading added in enhanceUpgradeShop
 		// Buildings section - heading added in addStructuralHeadings
 		// Create a wrapper region around just the building elements (not buy/sell buttons)
 		var products = l('products');
@@ -4893,6 +4885,14 @@ Game.registerMod("nvda accessibility", {
 		}
 		var uc = l('upgrades');
 		if (uc) {
+			// Add Available Upgrades H3 heading (re-added each rebuild)
+			if (!l('a11yUpgradesHeading')) {
+				var upgradesHeading = document.createElement('h3');
+				upgradesHeading.id = 'a11yUpgradesHeading';
+				upgradesHeading.textContent = 'Available Upgrades';
+				upgradesHeading.style.cssText = 'position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;';
+				uc.insertBefore(upgradesHeading, uc.firstChild);
+			}
 			// Make the existing #storeTitle serve as the store heading
 			var storeTitle = l('storeTitle');
 			if (storeTitle) {
