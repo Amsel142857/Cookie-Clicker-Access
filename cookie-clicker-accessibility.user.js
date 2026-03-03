@@ -2608,17 +2608,6 @@ Game.registerMod("nvda accessibility", {
 			(function(building) {
 				el.addEventListener('keydown', function(e) {
 					if (e.key === 'Enter' || e.key === ' ') {
-						var isBuy = Game.buyMode === 1;
-						var bulk = Game.buyBulkShortcut ? Game.buyBulkOld : Game.buyBulk;
-						if (isBuy && bulk > 1) {
-							var bulkPrice = building.getSumPrice ? building.getSumPrice(bulk) : building.price * bulk;
-							if (Game.cookies < bulkPrice) {
-								e.preventDefault();
-								e.stopPropagation();
-								MOD.announce('Cannot afford ' + bulk + ' ' + building.name);
-								return;
-							}
-						}
 						e.preventDefault();
 						el.click();
 					}
@@ -3725,12 +3714,12 @@ Game.registerMod("nvda accessibility", {
 			MOD.gardenAnnounce('Row ' + (y+1) + ', column ' + (x+1) + ', empty');
 			return;
 		}
-		if (!info.isMature) {
-			MOD.gardenAnnounce(info.name + ' at row ' + (y+1) + ', column ' + (x+1) + ' is ' + info.growth + '% grown, not ready to harvest');
-			return;
-		}
 		g.harvest(x, y);
-		MOD.gardenAnnounce('Harvested ' + info.name + ' from row ' + (y+1) + ', column ' + (x+1));
+		if (info.isMature) {
+			MOD.gardenAnnounce('Harvested ' + info.name + ' from row ' + (y+1) + ', column ' + (x+1));
+		} else {
+			MOD.gardenAnnounce('Removed ' + info.name + ' from row ' + (y+1) + ', column ' + (x+1));
+		}
 		MOD.updatePlotButton(x, y);
 	},
 	// Plant at plot (uses selected seed)
