@@ -1278,6 +1278,7 @@ Game.registerMod("nvda accessibility", {
 		}
 	},
 	enhanceSugarLump: function() {
+		var MOD = this;
 		var lc = l('lumps');
 		if (!lc) return;
 		lc.setAttribute('role', 'button');
@@ -1291,13 +1292,15 @@ Game.registerMod("nvda accessibility", {
 			lc.addEventListener('keydown', function(e) {
 				if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); lc.click(); }
 			});
-			lc.addEventListener('click', function() {
-				// Compare against frame-tracked state (set every frame in updateDynamicLabels)
-				// This works even when NVDA intercepts Enter and our keydown never fires
-				var pre = MOD.trackedLumpState;
-				setTimeout(function() {
-					var gained = Game.lumps - pre.lumps;
-					var harvested = (Game.lumpT !== pre.lumpT);
+			// Wrap Game.clickLump to announce results regardless of how the click is triggered
+			if (!MOD.originalClickLump) {
+				MOD.originalClickLump = Game.clickLump;
+				Game.clickLump = function() {
+					var preLumps = Game.lumps;
+					var preLumpT = Game.lumpT;
+					MOD.originalClickLump();
+					var gained = Game.lumps - preLumps;
+					var harvested = (Game.lumpT !== preLumpT);
 					if (harvested) {
 						if (gained > 0) {
 							MOD.announce('Harvested ' + gained + ' sugar lump' + (gained !== 1 ? 's' : '') + '. You now have ' + Beautify(Game.lumps) + ' lumps.');
@@ -1313,8 +1316,8 @@ Game.registerMod("nvda accessibility", {
 						}
 					}
 					MOD.updateSugarLumpLabel();
-				}, 100);
-			});
+				};
+			}
 		}
 	},
 	updateSugarLumpLabel: function() {
@@ -7242,17 +7245,7 @@ Game.registerMod("nvda accessibility", {
 
 		var info = this.getMilkInfo();
 
-		// All info in text content so NVDA reads it in browse mode
-		var text = 'Milk: ' + info.milkName + ', rank ' + info.rank + ' of ' + info.maxRank;
-		if (info.achievementsToNext > 0 && info.rank < info.maxRank) {
-			text += ', ' + info.achievementsToNext + ' achievements until next rank';
-		} else if (info.rank >= info.maxRank) {
-			text += ', all milk flavors unlocked';
-		}
-		text += '. ' + info.achievements + ' total achievements. ';
-		if (info.kittenMult > 1) {
-			text += 'Kitten multiplier: ' + Beautify(info.kittenMult * 100) + '%.';
-		}
+		var text = 'Milk: Rank ' + info.romanRank + ', ' + info.milkName;
 
 		MOD.setTextIfChanged(milkDiv, text);
 		milkDiv.removeAttribute('aria-label');
