@@ -1,5 +1,13 @@
 # Cookie Clicker Access - Changelog
 
+## Version 13.8
+
+- Simplified milk display under big cookie to show just rank and type (detailed info already in stats menu)
+- Fixed sugar lump harvest announcements by wrapping Game.clickLump directly instead of using setTimeout
+- Pantheon: slot labels now show only the active tier's effect plus dynamic info (e.g. Cyclius current bonus)
+- Pantheon: spirit effects listed per slot tier (Diamond, Ruby, Jade) on separate lines for easy navigation
+- Pantheon: simplified slot button labels and "slot already occupied" feedback
+
 ## Version 13.7
 
 ### Garden Grid Navigation

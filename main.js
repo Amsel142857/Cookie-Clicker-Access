@@ -3982,8 +3982,13 @@ Game.registerMod("nvda accessibility", {
 			var lbl = slots[i] + ' slot: ';
 			if (spiritId !== -1 && pan.godsById[spiritId]) {
 				var god = pan.godsById[spiritId];
-				var effect = MOD.getSpiritSlotEffect(god, i);
-				lbl += god.name + ', ' + effect + '. Press Enter to remove.';
+				var descKey = 'desc' + (i + 1);
+				var effectParts = [];
+				if (god[descKey]) effectParts.push(MOD.stripHtml(god[descKey]));
+				if (god.activeDescFunc) {
+					try { effectParts.push(MOD.stripHtml(god.activeDescFunc())); } catch(e) {}
+				}
+				lbl += god.name + (effectParts.length > 0 ? ', ' + effectParts.join('. ') : '');
 				MOD.setAttributeIfChanged(slotEl, 'role', 'button');
 			} else {
 				lbl += 'Empty';
@@ -4066,14 +4071,11 @@ Game.registerMod("nvda accessibility", {
 			var godEl = l('templeGod' + god.id);
 			if (!godEl) continue;
 			var slotted = pan.slot.indexOf(god.id);
-			var descParts = [];
-			if (god.activeDescFunc) {
-				try { descParts.push(MOD.stripHtml(god.activeDescFunc())); } catch(e) {}
-			}
-			if (god.descBefore) descParts.push(MOD.stripHtml(god.descBefore));
-			if (god.descAfter) descParts.push(MOD.stripHtml(god.descAfter));
-			var cleanDesc = descParts.join('. ').replace(/ +\./g, '.').replace(/ +,/g, ',');
-			var flavorText = god.quote ? MOD.stripHtml(god.quote).replace(/ +\./g, '.').replace(/ +,/g, ',') : '';
+			var flavorParts = [];
+			if (god.descBefore) flavorParts.push(MOD.stripHtml(god.descBefore));
+			if (god.descAfter) flavorParts.push(MOD.stripHtml(god.descAfter));
+			if (god.quote) flavorParts.push(MOD.stripHtml(god.quote));
+			var flavorText = flavorParts.join('. ').replace(/ +\./g, '.').replace(/ +,/g, ',');
 			// Hide the god element from screen readers
 			godEl.setAttribute('aria-hidden', 'true');
 			godEl.removeAttribute('tabindex');
@@ -4094,10 +4096,15 @@ Game.registerMod("nvda accessibility", {
 				flavorEl.id = 'a11y-god-flavor-' + god.id;
 				flavorEl.style.cssText = 'position:absolute;left:-10000px;width:1px;height:1px;overflow:hidden;';
 				anchor.parentNode.insertBefore(flavorEl, anchor);
-				// Add buff text element
+				// Add per-slot effect lines
 				var buffEl = document.createElement('div');
 				buffEl.id = 'a11y-god-buff-' + god.id;
 				buffEl.style.cssText = 'position:absolute;left:-10000px;width:1px;height:1px;overflow:hidden;';
+				for (var si = 0; si < 3; si++) {
+					var line = document.createElement('div');
+					line.id = 'a11y-god-buff-' + god.id + '-slot-' + si;
+					buffEl.appendChild(line);
+				}
 				anchor.parentNode.insertBefore(buffEl, anchor);
 				MOD.createSpiritSlotButtons(god, anchor, pan, slots);
 			}
@@ -4107,7 +4114,16 @@ Game.registerMod("nvda accessibility", {
 			var buffEl = l('a11y-god-buff-' + god.id);
 			if (headingEl) headingEl.textContent = god.name + (slotted >= 0 ? ', in ' + slots[slotted] + ' slot' : '');
 			if (flavorEl) flavorEl.textContent = flavorText;
-			if (buffEl) buffEl.textContent = cleanDesc;
+			if (buffEl) {
+				var slotNames = ['Diamond', 'Ruby', 'Jade'];
+				for (var si = 0; si < 3; si++) {
+					var lineEl = l('a11y-god-buff-' + god.id + '-slot-' + si);
+					if (!lineEl) continue;
+					var descKey = 'desc' + (si + 1);
+					var lineText = slotNames[si] + ': ' + (god[descKey] ? MOD.stripHtml(god[descKey]).replace(/ +\./g, '.').replace(/ +,/g, ',') : 'No effect');
+					MOD.setTextIfChanged(lineEl, lineText);
+				}
+			}
 			// Update slot button states (disabled for current slot)
 			MOD.updateSpiritSlotButtons(god, slotted);
 		}
@@ -4143,12 +4159,9 @@ Game.registerMod("nvda accessibility", {
 					if (!pan) return;
 					var currentGod = pan.godsById[godId];
 					if (!currentGod) return;
-					// Already in this slot — do nothing
-					if (currentGod.slot === slotIndex) return;
-					// Slot occupied by another god — must remove that god first
+					// Slot occupied — must remove that god first (covers self-slotting too)
 					if (pan.slot[slotIndex] !== -1) {
-						var occupant = pan.godsById[pan.slot[slotIndex]];
-						MOD.announce(slots[slotIndex] + ' slot is occupied by ' + (occupant ? occupant.name : 'another spirit') + '. Remove it first.');
+						MOD.announce('Slot already occupied');
 						return;
 					}
 					if (pan.swaps <= 0) {
@@ -4168,15 +4181,10 @@ Game.registerMod("nvda accessibility", {
 	updateSpiritSlotButtons: function(god, currentSlot) {
 		var MOD = this;
 		var slots = ['Diamond', 'Ruby', 'Jade'];
-		var descKeys = ['desc1', 'desc2', 'desc3'];
-		// currentSlot: -1 if not slotted, 0/1/2 if in a slot
 		for (var i = 0; i < 3; i++) {
 			var btn = l('a11y-god-' + god.id + '-slot-' + i);
 			if (!btn) continue;
-			var lbl = 'Place ' + god.name + ' in ' + slots[i] + ' slot';
-			var slotDesc = god[descKeys[i]] ? MOD.stripHtml(god[descKeys[i]]).replace(/ +\./g, '.').replace(/ +,/g, ',') : '';
-			if (slotDesc) lbl += ', ' + slotDesc;
-			MOD.setAttributeIfChanged(btn, 'aria-label', lbl);
+			MOD.setAttributeIfChanged(btn, 'aria-label', 'Place ' + god.name + ' in ' + slots[i] + ' slot');
 		}
 	},
 		enhanceGrimoireMinigame: function() {
